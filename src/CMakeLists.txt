@@ -1,6 +1,8 @@
 include(FetchContent)
 find_package(OpenMP REQUIRED)
 
+set(CMAKE_Fortran_FLAGS "${CMAKE_Fortran_FLAGS} -fconvert=swap")
+
 FetchContent_Declare(fiat
     GIT_REPOSITORY https://github.com/ecmwf-ifs/fiat.git
     GIT_TAG 1.4.1
@@ -8,6 +10,45 @@ FetchContent_Declare(fiat
     GIT_PROGRESS TRUE
 )
 FetchContent_MakeAvailable(fiat)
+
+add_library(struct_mod STATIC)
+
+target_sources(struct_mod
+    PUBLIC
+./common/micro/modd_cloudparn.F90
+./common/micro/modd_elec_descr.F90
+./common/micro/modd_elec_param.F90
+./common/micro/modd_elecn.F90
+./common/micro/modd_fields_address.F90
+./common/micro/modd_nebn.F90
+./common/micro/modd_param_icen.F90
+./common/micro/modd_param_lima.F90
+./common/micro/modd_param_lima_cold.F90
+./common/micro/modd_param_lima_mixed.F90
+./common/micro/modd_param_lima_warm.F90
+./common/micro/modd_rain_ice_descrn.F90
+./common/micro/modd_rain_ice_paramn.F90
+./common/aux/modd_budget.F90
+./common/aux/modd_conf.F90
+./common/aux/modd_cst.F90
+./common/aux/modd_dimphyexn.F90
+./common/aux/modd_field.F90
+./common/aux/modd_io.F90
+./common/aux/modd_les.F90
+./common/aux/modd_nsv.F90
+./common/aux/modd_parameters.F90
+./common/aux/modd_phyex.F90
+./common/aux/modd_precision.F90
+./common/aux/modd_argslist_ll.F90
+./common/micro/modd_tiwmx.F90
+)
+
+target_link_libraries(struct_mod
+    PRIVATE
+        fiat
+        parkind_dp
+        )
+
 
 add_library(common STATIC)
 
@@ -24,18 +65,6 @@ target_sources(common
 ./common/aux/gradient_v.F90
 ./common/aux/gradient_w.F90
 ./common/aux/ini_phyex.F90
-./common/aux/modd_argslist_ll.F90
-./common/aux/modd_budget.F90
-./common/aux/modd_conf.F90
-./common/aux/modd_cst.F90
-./common/aux/modd_dimphyexn.F90
-./common/aux/modd_field.F90
-./common/aux/modd_io.F90
-./common/aux/modd_les.F90
-./common/aux/modd_nsv.F90
-./common/aux/modd_parameters.F90
-./common/aux/modd_phyex.F90
-./common/aux/modd_precision.F90
 ./common/aux/mode_argslist_ll_phy.F90
 ./common/aux/mode_budget_phy.F90
 ./common/aux/mode_check_nam_val.F90
@@ -44,6 +73,7 @@ target_sources(common
 ./common/aux/mode_gradient_v_phy.F90
 ./common/aux/mode_gradient_w_phy.F90
 ./common/aux/mode_ini_cst.F90
+./common/micro/mode_ini_cloudpar.F90
 ./common/aux/mode_io_field_write.F90
 ./common/aux/mode_io_field_write_phy.F90
 ./common/aux/mode_ll.F90
@@ -74,20 +104,6 @@ target_sources(common
 ./common/micro/lima_adjust_split.F90
 ./common/micro/lima_precip_scavenging.F90
 ./common/micro/minpack.F90
-./common/micro/modd_cloudparn.F90
-./common/micro/modd_elec_descr.F90
-./common/micro/modd_elec_param.F90
-./common/micro/modd_elecn.F90
-./common/micro/modd_fields_address.F90
-./common/micro/modd_nebn.F90
-./common/micro/modd_param_icen.F90
-./common/micro/modd_param_lima.F90
-./common/micro/modd_param_lima_cold.F90
-./common/micro/modd_param_lima_mixed.F90
-./common/micro/modd_param_lima_warm.F90
-./common/micro/modd_rain_ice_descrn.F90
-./common/micro/modd_rain_ice_paramn.F90
-./common/micro/modd_tiwmx.F90
 ./common/micro/mode_compute_lambda.F90
 ./common/micro/mode_elec_beard_effect.F90
 ./common/micro/mode_elec_compute_ex.F90
@@ -266,6 +282,7 @@ target_sources(common
 ./common/turb/shallow_mf.F90
 ./common/turb/shuman_mf.F90
 ./common/turb/turb.F90
+./offline/support/mode_mnh_zwork.F90
 )
 
 target_include_directories( common PUBLIC
@@ -277,7 +294,11 @@ target_link_libraries(common
     PRIVATE
         fiat
         parkind_dp
+    PUBLIC
+        struct_mod
         )
+
+
 
 add_library(exe_support STATIC)
 
@@ -293,7 +314,6 @@ target_sources(exe_support
 # ./offline/progs/getdata_turb_mod.F90
 ./offline/support/arrays_manip.F90
 ./offline/support/compute_diff.F90
-./offline/support/mode_mnh_zwork.F90
 ./offline/support/stack_mod.F90
 ./offline/support/xrd_getoptions.F90
 ./offline/support/xrd_unix_env.F90
@@ -303,6 +323,8 @@ target_link_libraries(exe_support
     PRIVATE
         fiat
         parkind_dp
+    PUBLIC
+        struct_mod
         )
 
 add_executable(main_ice_adjust offline/progs/main_ice_adjust.F90)
@@ -315,3 +337,8 @@ target_link_libraries(main_ice_adjust
     exe_support
     OpenMP::OpenMP_Fortran
     )
+
+target_link_libraries(main_ice_adjust
+    PUBLIC 
+    struct_mod
+)

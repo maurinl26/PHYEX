@@ -1,79 +1,71 @@
-!MNH_LIC Copyright 1994-2014 CNRS, Meteo-France and Universite Paul Sabatier
-!MNH_LIC This is part of the Meso-NH software governed by the CeCILL-C licence
-!MNH_LIC version 1. See LICENSE, CeCILL-C_V1-en.txt and CeCILL-C_V1-fr.txt  
-!MNH_LIC for details. version 1.
+!MNH_LIC COPYRIGHT 1994-2014 CNRS, METEO-FRANCE AND UNIVERSITE PAUL SABATIER
+!MNH_LIC THIS IS PART OF THE MESO-NH SOFTWARE GOVERNED BY THE CECILL-C LICENCE
+!MNH_LIC VERSION 1. SEE LICENSE, CECILL-C_V1-EN.TXT AND CECILL-C_V1-FR.TXT
+!MNH_LIC FOR DETAILS. VERSION 1.
 !-----------------------------------------------------------------
-!--------------- special set of characters for RCS information
+!--------------- SPECIAL SET OF CHARACTERS FOR RCS INFORMATION
 !-----------------------------------------------------------------
-! $Source$ $Revision$
-! MASDEV4_7 modd 2006/05/18 13:07:25
+! $SOURCE$ $REVISION$
+! MASDEV4_7 MODD 2006/05/18 13:07:25
 !-----------------------------------------------------------------
 !     ######################
-      MODULE MODD_CLOUDPAR_n
+MODULE MODD_CLOUDPAR_N
 !     ######################
 !
-!!****  *MODD_CLOUDPAR$n* - declaration of the model-n dependant Microphysics 
-!!   constants 
+!!****  *MODD_CLOUDPAR$N* - DECLARATION OF THE MODEL-N DEPENDANT MICROPHYSICS
+!!   CONSTANTS
 !!
 !!    PURPOSE
 !!    -------
-!       The purpose of this declarative module is to declare  the 
-!     model-n dependant Microhysics constants.    
+!       THE PURPOSE OF THIS DECLARATIVE MODULE IS TO DECLARE  THE
+!     MODEL-N DEPENDANT MICROHYSICS CONSTANTS.
 !
 !!
 !!**  IMPLICIT ARGUMENTS
 !!    ------------------
-!!      None 
+!!      NONE
 !!
 !!    REFERENCE
 !!    ---------
-!!      Book2 of documentation of Meso-NH (MODD_CLOUDPARn)
-!!          
+!!      BOOK2 OF DOCUMENTATION OF MESO-NH (MODD_CLOUDPARN)
+!!
 !!    AUTHOR
 !!    ------
-!!	E. Richard   *Laboratoire d'Aerologie*
+!!        E. RICHARD   *LABORATOIRE D'AEROLOGIE*
 !!
 !!    MODIFICATIONS
 !!    -------------
-!!      Original    20/12/95                      
-!!       J.-P. Pinty   29/11/02 add C3R5, ICE2, ICE4, ELEC
+!!      ORIGINAL    20/12/95
+!!       J.-P. PINTY   29/11/02 ADD C3R5, ICE2, ICE4, ELEC
 !!
 !-------------------------------------------------------------------------------
 !
 !*       0.   DECLARATIONS
 !             ------------
 !
-USE MODD_PARAMETERS, ONLY: JPMODELMAX
-IMPLICIT NONE
+   USE MODD_PARAMETERS, ONLY: JPMODELMAX
+   IMPLICIT NONE
 
-TYPE CLOUDPAR_t
+   TYPE CLOUDPAR_T
 !
-  INTEGER :: NSPLITR      !< Number of required small time step integration
-                          !! for rain sedimentation computation
-  INTEGER :: NSPLITG      !< Number of required small time step integration
-                          !! for ice hydrometeor sedimentation computation
+      INTEGER :: NSPLITR      !< NUMBER OF REQUIRED SMALL TIME STEP INTEGRATION
+                          !! FOR RAIN SEDIMENTATION COMPUTATION
+      INTEGER :: NSPLITG      !< NUMBER OF REQUIRED SMALL TIME STEP INTEGRATION
+                          !! FOR ICE HYDROMETEOR SEDIMENTATION COMPUTATION
 !
 !
-END TYPE CLOUDPAR_t
+   END TYPE CLOUDPAR_T
 
-TYPE(CLOUDPAR_t), DIMENSION(JPMODELMAX), TARGET, SAVE :: CLOUDPAR_MODEL
-TYPE(CLOUDPAR_t), POINTER, SAVE :: CLOUDPARN => NULL()
-INTEGER, POINTER :: NSPLITR=>NULL()
-INTEGER, POINTER :: NSPLITG=>NULL()
+! TYPE(CLOUDPAR_T), DIMENSION(JPMODELMAX), TARGET, SAVE :: CLOUDPAR_MODEL
+   TYPE(CLOUDPAR_T), TARGET, SAVE :: CLOUDPARN
+   INTEGER, POINTER :: NSPLITR => NULL()
+   INTEGER, POINTER :: NSPLITG => NULL()
 
 CONTAINS
+   SUBROUTINE CLOUDPAR_ASSOCIATE()
+      IMPLICIT NONE
+      NSPLITR => CLOUDPARN%NSPLITR
+      NSPLITG => CLOUDPARN%NSPLITG
+   END SUBROUTINE
 
-SUBROUTINE CLOUDPAR_GOTO_MODEL(KFROM, KTO)
-INTEGER, INTENT(IN) :: KFROM, KTO
-!
-CLOUDPARN => CLOUDPAR_MODEL(KTO)
-!
-! Save current state for allocated arrays
-!
-! Current model is set to model KTO
-NSPLITR=>CLOUDPAR_MODEL(KTO)%NSPLITR
-NSPLITG=>CLOUDPAR_MODEL(KTO)%NSPLITG
-
-END SUBROUTINE CLOUDPAR_GOTO_MODEL
-
-END MODULE MODD_CLOUDPAR_n
+END MODULE MODD_CLOUDPAR_N

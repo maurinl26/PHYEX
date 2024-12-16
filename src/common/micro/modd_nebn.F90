@@ -51,8 +51,7 @@ TYPE NEB_t
   LOGICAL            :: LSUBG_COND    !< Switch for subgrid condensation 
 END TYPE NEB_t
 
-TYPE(NEB_t), DIMENSION(JPMODELMAX), SAVE, TARGET :: NEB_MODEL
-TYPE(NEB_t), POINTER, SAVE :: NEBN => NULL()
+TYPE(NEB_t), TARGET, SAVE :: NEBN
 
 REAL, POINTER :: XTMINMIX=>NULL(), &
                  XTMAXMIX=>NULL()
@@ -72,17 +71,8 @@ NAMELIST/NAM_NEBn/XTMINMIX, XTMAXMIX, LHGT_QS, CFRAC_ICE_ADJUST, CFRAC_ICE_SHALL
 !-------------------------------------------------------------------------------
 !
 CONTAINS
-SUBROUTINE NEB_GOTO_MODEL(KFROM, KTO)
-!! This subroutine associate all the pointers to the right component of
-!! the right strucuture. A value can be accessed through the structure NEBN
-!! or through the strucuture NEB_MODEL(KTO) or directly through these pointers.
-IMPLICIT NONE
-INTEGER, INTENT(IN) :: KFROM, KTO
-!
-IF(.NOT. ASSOCIATED(NEBN, NEB_MODEL(KTO))) THEN
-  !
-  NEBN => NEB_MODEL(KTO)
-  !
+subroutine NEB_ASSOCIATE()
+  implicit none
   XTMINMIX => NEBN%XTMINMIX
   XTMAXMIX => NEBN%XTMAXMIX
   LHGT_QS => NEBN%LHGT_QS
@@ -94,9 +84,7 @@ IF(.NOT. ASSOCIATED(NEBN, NEB_MODEL(KTO))) THEN
   LSTATNW => NEBN%LSTATNW
   LSIGMAS => NEBN%LSIGMAS
   LSUBG_COND => NEBN%LSUBG_COND
-  !
-ENDIF
-END SUBROUTINE NEB_GOTO_MODEL
+end subroutine NEB_ASSOCIATE
 !
 SUBROUTINE NEBN_INIT(HPROGRAM, TFILENAM, LDNEEDNAM, KLUOUT, &
                     &LDDEFAULTVAL, LDREADNAM, LDCHECK, KPRINT)
@@ -152,6 +140,8 @@ INTEGER, OPTIONAL, INTENT(IN) :: KPRINT       !< Print level (defaults to 0): 0 
 !
 LOGICAL :: LLDEFAULTVAL, LLREADNAM, LLCHECK, LLFOUND
 INTEGER :: IPRINT
+
+call NEB_ASSOCIATE()
 
 LLDEFAULTVAL=.TRUE.
 LLREADNAM=.TRUE.

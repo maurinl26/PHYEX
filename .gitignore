@@ -16,3 +16,10 @@
 # Eclipse project files
 /.cproject
 /.project
+
+.venv/
+build_cmake/
+data/
+*.mod
+
+fort.20
