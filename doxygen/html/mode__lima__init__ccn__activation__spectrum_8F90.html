@@ -102,31 +102,31 @@ Functions/Subroutines</h2></td></tr>
         <tr>
           <td class="memname">subroutine lima_init_ccn_activation_spectrum::distance </td>
           <td>(</td>
-          <td class="paramtype">integer, intent(in)&#160;</td>
+          <td class="paramtype">integer(kind=4), intent(in)&#160;</td>
           <td class="paramname"><em>M</em>, </td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">integer, intent(in)&#160;</td>
+          <td class="paramtype">integer(kind=4), intent(in)&#160;</td>
           <td class="paramname"><em>N</em>, </td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">real, dimension(n), intent(in)&#160;</td>
+          <td class="paramtype">real(kind=mnhreal64), dimension(n), intent(in)&#160;</td>
           <td class="paramname"><em>X</em>, </td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">real, dimension(m), intent(out)&#160;</td>
+          <td class="paramtype">real(kind=mnhreal64), dimension(m), intent(out)&#160;</td>
           <td class="paramname"><em>FVEC</em>, </td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">integer, intent(inout)&#160;</td>
+          <td class="paramtype">integer(kind=4), intent(inout)&#160;</td>
           <td class="paramname"><em>IFLAG</em>&#160;</td>
         </tr>
         <tr>
@@ -137,7 +137,7 @@ Functions/Subroutines</h2></td></tr>
       </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="mode__lima__init__ccn__activation__spectrum_8F90_source.html#l00363">363</a> of file <a class="el" href="mode__lima__init__ccn__activation__spectrum_8F90_source.html">mode_lima_init_ccn_activation_spectrum.F90</a>.</p>
+<p class="definition">Definition at line <a class="el" href="mode__lima__init__ccn__activation__spectrum_8F90_source.html#l00369">369</a> of file <a class="el" href="mode__lima__init__ccn__activation__spectrum_8F90_source.html">mode_lima_init_ccn_activation_spectrum.F90</a>.</p>
 <div class="dynheader">
 Here is the call graph for this function:</div>
 <div class="dyncontent">
@@ -153,16 +153,18 @@ Here is the caller graph for this function:</div>
 <div class="dyncontent">
 <div class="center"><img src="mode__lima__init__ccn__activation__spectrum_8F90_ab101672c486d4fe55f0d1f79b79fa868_icgraph.png" border="0" usemap="#amode__lima__init__ccn__activation__spectrum_8F90_ab101672c486d4fe55f0d1f79b79fa868_icgraph" alt=""/></div>
 <map name="amode__lima__init__ccn__activation__spectrum_8F90_ab101672c486d4fe55f0d1f79b79fa868_icgraph" id="amode__lima__init__ccn__activation__spectrum_8F90_ab101672c486d4fe55f0d1f79b79fa868_icgraph">
-<area shape="rect" title=" " alt="" coords="964,107,1041,133"/>
-<area shape="rect" href="namespacemode__lima__init__ccn__activation__spectrum.html#ad11efc05b4215767ec1259e6f6950cd4" title=" " alt="" coords="728,85,916,155"/>
-<area shape="rect" href="namespacemode__init__aerosol__properties.html#abb43b2a57c990c646920299492b5eb40" title=" " alt="" coords="465,99,680,141"/>
-<area shape="rect" href="ini__phyex_8F90.html#a93cdcb5b8181ddbfd1c7cadbd747853f" title=" " alt="" coords="332,107,417,133"/>
-<area shape="rect" href="main__ice__adjust_8F90.html#a46854dd27e6a52148355e426ca26d41d" title=" " alt="" coords="193,107,284,133"/>
+<area shape="rect" title=" " alt="" coords="964,157,1041,184"/>
+<area shape="rect" href="namespacemode__lima__init__ccn__activation__spectrum.html#ad11efc05b4215767ec1259e6f6950cd4" title=" " alt="" coords="728,135,916,206"/>
+<area shape="rect" href="namespacemode__init__aerosol__properties.html#abb43b2a57c990c646920299492b5eb40" title=" " alt="" coords="465,150,680,191"/>
+<area shape="rect" href="ini__phyex_8F90.html#a93cdcb5b8181ddbfd1c7cadbd747853f" title=" " alt="" coords="332,157,417,184"/>
+<area shape="rect" href="main__ice__adjust_8F90.html#a46854dd27e6a52148355e426ca26d41d" title=" " alt="" coords="193,157,284,184"/>
 <area shape="rect" href="main__ice__adjust_8F90.html#afeba0366abb7402856928b5c96e9e3e1" title=" " alt="" coords="11,5,139,32"/>
-<area shape="rect" href="main__rain__ice_8F90.html#a99099c9da3ab35faf5226c772f061fde" title=" " alt="" coords="19,56,132,83"/>
-<area shape="rect" href="main__rain__ice__old_8F90.html#a759951adb9c6d30eb75ddab53ebf8f39" title=" " alt="" coords="5,107,145,133"/>
-<area shape="rect" href="main__shallow_8F90.html#a09dc47f11bee90403577d0bea4be4bbd" title=" " alt="" coords="19,157,131,184"/>
-<area shape="rect" href="main__turb_8F90.html#ae55925d0151bca669f2e99235cf77eff" title=" " alt="" coords="31,208,119,235"/>
+<area shape="rect" href="main__lima_8F90.html#a98a6c25ee98634744f14468b1801c7ce" title=" " alt="" coords="30,56,121,83"/>
+<area shape="rect" href="main__lima__adjust_8F90.html#a602f56e6ee73ca2374453cc990a2593c" title=" " alt="" coords="6,107,145,133"/>
+<area shape="rect" href="main__rain__ice_8F90.html#a99099c9da3ab35faf5226c772f061fde" title=" " alt="" coords="19,157,132,184"/>
+<area shape="rect" href="main__rain__ice__old_8F90.html#a759951adb9c6d30eb75ddab53ebf8f39" title=" " alt="" coords="5,208,145,235"/>
+<area shape="rect" href="main__shallow_8F90.html#a09dc47f11bee90403577d0bea4be4bbd" title=" " alt="" coords="19,259,131,285"/>
+<area shape="rect" href="main__turb_8F90.html#ae55925d0151bca669f2e99235cf77eff" title=" " alt="" coords="31,309,119,336"/>
 </map>
 </div>
 
@@ -206,7 +208,7 @@ Here is the caller graph for this function:</div>
       </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="mode__lima__init__ccn__activation__spectrum_8F90_source.html#l00301">301</a> of file <a class="el" href="mode__lima__init__ccn__activation__spectrum_8F90_source.html">mode_lima_init_ccn_activation_spectrum.F90</a>.</p>
+<p class="definition">Definition at line <a class="el" href="mode__lima__init__ccn__activation__spectrum_8F90_source.html#l00304">304</a> of file <a class="el" href="mode__lima__init__ccn__activation__spectrum_8F90_source.html">mode_lima_init_ccn_activation_spectrum.F90</a>.</p>
 <div class="dynheader">
 Here is the caller graph for this function:</div>
 <div class="dyncontent">
@@ -269,7 +271,7 @@ Here is the caller graph for this function:</div>
       </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="mode__lima__init__ccn__activation__spectrum_8F90_source.html#l00175">175</a> of file <a class="el" href="mode__lima__init__ccn__activation__spectrum_8F90_source.html">mode_lima_init_ccn_activation_spectrum.F90</a>.</p>
+<p class="definition">Definition at line <a class="el" href="mode__lima__init__ccn__activation__spectrum_8F90_source.html#l00178">178</a> of file <a class="el" href="mode__lima__init__ccn__activation__spectrum_8F90_source.html">mode_lima_init_ccn_activation_spectrum.F90</a>.</p>
 <div class="dynheader">
 Here is the call graph for this function:</div>
 <div class="dyncontent">

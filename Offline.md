@@ -27,16 +27,16 @@ When on a master commit, the build/with\_fcm/make\_fcm.sh script can be used to 
 
 ### Compilation and execution
 
-When on a master commit, the tools/check\_commit\_testprogs.sh script can be used to compile and execute the testprogs.
+When on a master commit, the tools/check\_commit\_testprogs.sh script can be used to compile and execute the testprogs (offline tests).
 The check\_commit\_testprogs.sh script uses the PHYEX source code:
 
   - of a specific commit on the master branch available on a remote repository
-  - or, the last commit of a testprogs\_\<commit\_hash\> branch available on a remote repository
+  - or, the last commit of a offline\_\<commit\_hash\> branch available on a remote repository
   - or, the content of a local repository.
 
 In the latter case, it can be interesting to clone the PHYEX repository twice.
 A first one to have the build tools on the master branch, and a second one to checkout the source code version to use.
-This solution is especially useful when working on a testprogs\_\<commit\_hash\> branch (because these branches does not
+This solution is especially useful when working on a offline\_\<commit\_hash\> branch (because these branches does not
 contain the build tools).
 
 Something like this can be used:
@@ -55,6 +55,7 @@ The last step will create a directory (in $HOME/TESTPROGS) with a copy of your s
 
 The branch testprogs\_data contains modified source code for the AROME model to enable the generation of data samples for the turb, shallow, rain\_ice and ice\_adjust testprogs.
 The branch testprogs\_data2 contains modified source code for the AROME model to enable the generation of data samples for the rain\_ice\_old testprog.
+The branch testprogs\_data3 contains modified source code for the AROME model to enable the generation of data samples for the lima and lima\_adjust testprogs.
 Using these branches, in the drivers of the different parametrisations (aro\_\* files), output can be enable for the AROME model.
 Running the AROME model with these modifications outputs files in the running directory.
 This must be done once by parametrisation (note that the check\_commit\_ial.sh script can be used to execute an AROME simulation).
