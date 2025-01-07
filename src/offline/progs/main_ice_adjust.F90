@@ -231,7 +231,7 @@ PROGRAM MAIN_ICE_ADJUST
    PHYEX%PARAM_ICEN%CSUBG_PR_PDF = 'SIGM'
    PHYEX%NEBN%LSUBG_COND = .TRUE.
    PHYEX%NEBN%LSIGMAS = .TRUE.
-   PHYEX%NEBN%CFRAC_ICE_ADJUST = 'S' ! Ice/liquid partition rule to use in adjustment
+   PHYEX%NEBN%CFRAC_ICE_ADJUST = 'T' ! Ice/liquid partition rule to use in adjustment
    PHYEX%NEBN%CFRAC_ICE_SHALLOW_MF = 'S' ! Ice/liquid partition rule to use in shallow_mf
 
 !Budgets
@@ -331,6 +331,14 @@ PROGRAM MAIN_ICE_ADJUST
       print *, "debug : LSTATNW ", PHYEX%NEBN%LSTATNW
       print *, "debug : CSUBG_MF_PDF ", PHYEX%PARAM_ICEN%CSUBG_MF_PDF
 
+      print *, "debug : RD ", PHYEX%CST%XRD
+      print *, "debug : RV ", PHYEX%CST%XRV
+      print *, "debug : CPD ", PHYEX%CST%XCPD
+      print *, "debug : CPV ", PHYEX%CST%XCPV
+      print *, "debug : CL ", PHYEX%CST%XCL
+      print *, "debug : CI ", PHYEX%CST%XCI
+
+
       print *, "debug : main_ice_adjust.F90 - Dimensions"
       print *, "debug : main_ice_adjust.F90 - NIJT = ", D0%NIJT, " NKT = ", D0%NKT
 
@@ -339,6 +347,69 @@ PROGRAM MAIN_ICE_ADJUST
       mean_field = sum(PRHODREF)/size(PRHODREF)
       std_field = sqrt(sum(PRHODREF**2)/size(PRHODREF) - mean_field**2)
       print *, "debug : main_ice_adjust.F90 - PRHODREF ", mean_field, std_field
+
+      mean_field = sum(PSIGQSAT)/size(PSIGQSAT)
+      std_field = sqrt(sum(PSIGQSAT**2)/size(PSIGQSAT) - mean_field**2)
+      print *, "debug : main_ice_adjust.F90 - PSIGQSAT ", mean_field, std_field
+
+      mean_field = sum(PRHODJ)/size(PRHODJ)
+      std_field = sqrt(sum(PRHODJ**2)/size(PRHODJ) - mean_field**2)
+      print *, "debug : main_ice_adjust.F90 - PRHODJ ", mean_field, std_field
+
+      mean_field = sum(PMFCONV)/size(PMFCONV)
+      std_field = sqrt(sum(PMFCONV**2)/size(PMFCONV) - mean_field**2)
+      print *, "debug : main_ice_adjust.F90 - PMFCONV ", mean_field, std_field
+
+      mean_field = sum(PPABST)/size(PPABST)
+      std_field = sqrt(sum(PPABST**2)/size(PPABST) - mean_field**2)
+      print *, "debug : main_ice_adjust.F90 - PPABST ", size(PPABST)
+
+      mean_field = sum(PZZ)/size(PZZ)
+      std_field = sqrt(sum(PZZ**2)/size(PZZ) - mean_field**2)
+      print *, "debug : main_ice_adjust.F90 - PZZ ", mean_field, std_field
+
+      mean_field = sum(PCF_MF)/size(PCF_MF)
+      std_field = sqrt(sum(PCF_MF**2)/size(PCF_MF) - mean_field**2)
+      print *, "debug : main_ice_adjust.F90 - PCF_MF ", mean_field, std_field
+
+      mean_field = sum(PRC_MF)/size(PRC_MF)
+      std_field = sqrt(sum(PRC_MF**2)/size(PRC_MF) - mean_field**2)
+      print *, "debug : main_ice_adjust.F90 - PRC_MF ", mean_field, std_field
+
+      mean_field = sum(PRI_MF)/size(PRI_MF)
+      std_field = sqrt(sum(PRI_MF**2)/size(PRI_MF) - mean_field**2)
+      print *, "debug : main_ice_adjust.F90 - PRI_MF ", mean_field, std_field
+
+      mean_field = sum(PRV)/size(PRV)
+      std_field = sqrt(sum(PRV**2)/size(PRV) - mean_field**2)
+      print *, "debug : main_ice_adjust.F90 - PRV ", mean_field, std_field
+
+      ! TODO change with 4D array
+      mean_field = sum(PRC)/size(PRC)
+      std_field = sqrt(sum(PRC**2)/size(PRC) - mean_field**2)
+      print *, "debug : main_ice_adjust.F90 - PRC ", mean_field, std_field
+
+      mean_field = sum(PTH)/size(PTH)
+      std_field = sqrt(sum(PTH**2)/size(PTH) - mean_field**2)
+      print *, "debug : main_ice_adjust.F90 - PTH ", mean_field, std_field
+
+      mean_field = sum(PRR)/size(PRR)
+      std_field = sqrt(sum(PRR**2)/size(PRR) - mean_field**2)
+      print *, "debug : main_ice_adjust.F90 - PRR ", mean_field, std_field
+
+      mean_field = sum(PRI)/size(PRI)
+      std_field = sqrt(sum(PRI**2)/size(PRI) - mean_field**2)
+      print *, "debug : main_ice_adjust.F90 - PRI ", mean_field, std_field
+
+      mean_field = sum(PRS)/size(PRS)
+      std_field = sqrt(sum(PRS**2)/size(PRS) - mean_field**2)
+      print *, "debug : main_ice_adjust.F90 - PRI ", mean_field, std_field
+
+      mean_field = sum(PRG)/size(PRG)
+      std_field = sqrt(sum(PRG**2)/size(PRG) - mean_field**2)
+      print *, "debug : main_ice_adjust.F90 - PRI ", mean_field, std_field
+
+
 
       print *, "debug : main_ice_adjust.F90 - Fields INOUT (Before call)"
 
@@ -518,6 +589,32 @@ PROGRAM MAIN_ICE_ADJUST
    mean_field = sum(PHLI_HRI)/size(PHLI_HRI)
    std_field = sqrt(sum(PHLI_HRI**2)/size(PHLI_HRI) - mean_field**2)
    print *, "debug : main_ice_adjust.F90 - PHLC_HRC mean ", mean_field, ", std ", std_field
+
+   mean_field = sum(PCLDFR)/size(PCLDFR)
+   std_field = sqrt(sum(PCLDFR**2)/size(PCLDFR) - mean_field**2)
+   print *, "debug : main_ice_adjust.F90 - PCLDFR mean ", mean_field, ", std ", std_field
+
+   mean_field = sum(PICLDFR)/size(PICLDFR)
+   std_field = sqrt(sum(PICLDFR**2)/size(PICLDFR) - mean_field**2)
+   print *, "debug : main_ice_adjust.F90 - PICLDFR mean ", mean_field, ", std ", std_field
+
+   mean_field = sum(PWCLDFR)/size(PWCLDFR)
+   std_field = sqrt(sum(PWCLDFR**2)/size(PWCLDFR) - mean_field**2)
+   print *, "debug : main_ice_adjust.F90 - PWCLDFR mean ", mean_field, ", std ", std_field
+
+   mean_field = sum(PSSIO)/size(PSSIO)
+   std_field = sqrt(sum(PSSIO**2)/size(PSSIO) - mean_field**2)
+   print *, "debug : main_ice_adjust.F90 - PSSIO mean ", mean_field, ", std ", std_field
+
+   mean_field = sum(PSSIU)/size(PSSIU)
+   std_field = sqrt(sum(PSSIU**2)/size(PSSIU) - mean_field**2)
+   print *, "debug : main_ice_adjust.F90 - PSSIU mean ", mean_field, ", std ", std_field
+
+   mean_field = sum(PIFR)/size(PIFR)
+   std_field = sqrt(sum(PIFR**2)/size(PIFR) - mean_field**2)
+   print *, "debug : main_ice_adjust.F90 - PIFR mean ", mean_field, ", std ", std_field
+
+
 
    
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
