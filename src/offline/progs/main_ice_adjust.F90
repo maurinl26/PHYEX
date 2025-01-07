@@ -36,6 +36,8 @@ PROGRAM MAIN_ICE_ADJUST
    INTEGER                  :: NBUDGET
 ! TYPE(TBUDGETCONF_t)      :: TBUCONF
 !
+   ! For comparisons
+   real :: mean_field, std_field
 
    INTEGER      :: KLEV
 
@@ -130,6 +132,7 @@ PROGRAM MAIN_ICE_ADJUST
    NFLEVG = -1
    CALL GETOPTION("--nflevg", NFLEVG)
    CALL GETOPTION("--check", LLCHECK)
+   LLCHECKDIFF = .FALSE.
    CALL GETOPTION("--checkdiff", LLCHECKDIFF)
    IBLOCK1 = 1
    CALL GETOPTION("--check-block-1", IBLOCK1)
@@ -138,6 +141,7 @@ PROGRAM MAIN_ICE_ADJUST
    CALL GETOPTION("--stat", LLSTAT)
    NTIME = 1
    CALL GETOPTION("--times", NTIME)
+   LLVERBOSE = .TRUE. ! default behaviour
    CALL GETOPTION("--verbose", LLVERBOSE)
    CALL GETOPTION("--bind", LLBIND)
    CALL CHECKOPTIONS()
@@ -168,10 +172,10 @@ PROGRAM MAIN_ICE_ADJUST
    KLEV = SIZE(PRS, 2)
    KRR = SIZE(PRS, 3)
 
-   ! IF (LLVERBOSE) 
-   PRINT *, " KLEV = ", KLEV, " KRR = ", KRR, " NFLEVG=", NFLEVG
+   ! IF (LLVERBOSE)
+   PRINT *, "debug : main_ice_adjust.F90 - KLEV = ", KLEV, " KRR = ", KRR, " NFLEVG=", NFLEVG
+   PRINT *, "debug : main_ice_adjust.F90 - NPROMA = ", NPROMA, " NGPBLKS = ", NGPBLKS
 
-   PRINT *, "debug : main_ice_adjust.F90 - NPROMA = ", NPROMA, " KLEV = ", KLEV, " NGPBLKS = ", NGPBLKS
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !!!!!!!!!!!!!!!!!!!! CALL INIT_PHYEX(KRR, PHYEX)!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -230,14 +234,6 @@ PROGRAM MAIN_ICE_ADJUST
    PHYEX%NEBN%CFRAC_ICE_ADJUST = 'S' ! Ice/liquid partition rule to use in adjustment
    PHYEX%NEBN%CFRAC_ICE_SHALLOW_MF = 'S' ! Ice/liquid partition rule to use in shallow_mf
 
-!Param initialisation
-   print *, "debug : main_ice_adjust.F90 - overriding ini_phyex values"
-   CALL INI_PHYEX(CPROGRAM, TPFILE, .TRUE., IULOUT, 0, 1, &
-                 &PTSTEP, ZDZMIN, &
-                 &CMICRO, CSCONV, CTURB, &
-                 &LDDEFAULTVAL=.FALSE., LDREADNAM=.FALSE., LDCHECK=.TRUE., KPRINT=2, LDINIT=.TRUE., &
-                 &PHYEX_IN=PHYEX, PHYEX_OUT=PHYEX)
-
 !Budgets
    CALL TBUCONF_ASSOCIATE
    NBUDGET = NBUDGET_RI
@@ -286,6 +282,7 @@ PROGRAM MAIN_ICE_ADJUST
    ISTSZ = 0
    ISTSZ(KIND(PRHODJ)/4) = NPROMA*15*KLEV
 #ifndef USE_STACK
+   print *, "debug : main_ice_adjust.F90 - USE_STACK activated"
    ISTSZ(2) = ISTSZ(2) + CEILING(ISTSZ(1)/2.)
    ISTSZ(1) = 0
 #endif
@@ -318,7 +315,53 @@ PROGRAM MAIN_ICE_ADJUST
 
       TSC = OMP_GET_WTIME()
 
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!!!!!!!!!!!!!!!!!!!!!!!! Input Fields !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      print *, "debug : main_ice_adjust.F90 - Logical and Char variables"
+      print *, "debug : LSUBG_COND ", PHYEX%NEBN%LSUBG_COND
+      print *, "debug : LSIGMAS ", PHYEX%NEBN%LSIGMAS
+      print *, "debug : CFRAC_ICE_ADJUST ", PHYEX%NEBN%CFRAC_ICE_ADJUST
+      print *, "debug : CCONDENS ", PHYEX%NEBN%CCONDENS
+      print *, "debug : CLAMBDA3 ", PHYEX%NEBN%CLAMBDA3
+      print *, "debug : OCOMPUTE_SRC ", OCOMPUTE_SRC
+      print *, "debug : LMFCONV ", LMFCONV
+      print *, "debug : LOCND2 ", PHYEX%PARAM_ICEN%LOCND2
+      print *, "debug : LHGT_QS ", PHYEX%NEBN%LHGT_QS
+      print *, "debug : LSTATNW ", PHYEX%NEBN%LSTATNW
+      print *, "debug : CSUBG_MF_PDF ", PHYEX%PARAM_ICEN%CSUBG_MF_PDF
+
+      print *, "debug : main_ice_adjust.F90 - Dimensions"
+      print *, "debug : main_ice_adjust.F90 - NIJT = ", D0%NIJT, " NKT = ", D0%NKT
+
+      print *, "debug : main_ice_adjust.F90 - Fields IN"
+
+      mean_field = sum(PRHODREF)/size(PRHODREF)
+      std_field = sqrt(sum(PRHODREF**2)/size(PRHODREF) - mean_field**2)
+      print *, "debug : main_ice_adjust.F90 - PRHODREF ", mean_field, std_field
+
+      print *, "debug : main_ice_adjust.F90 - Fields INOUT (Before call)"
+
+   mean_field = sum(PRS(:,:,1,:))/size(PRS(:,:,1,:))
+   std_field = sqrt(sum(PRS(:,:,1,:)**2)/size(PRS(:,:,1,:)) - mean_field**2)
+   print *, "debug : main_ice_adjust.F90 - PRVS mean ", mean_field, ", std ", std_field
+
+   mean_field = sum(PRS(:,:,2,:))/size(PRS(:,:,2,:))
+   std_field = sqrt(sum(PRS(:,:,2,:)**2)/size(PRS(:,:,2,:)) - mean_field**2)
+   print *, "debug : main_ice_adjust.F90 - PRCS mean ", mean_field, ", std ", std_field
+
+   mean_field = sum(PRS(:,:,4,:))/size(PRS(:,:,4,:))
+   std_field = sqrt(sum(PRS(:,:,4,:)**2)/size(PRS(:,:,4,:)) - mean_field**2)
+   print *, "debug : main_ice_adjust.F90 - PRIS mean ", mean_field, ", std ", std_field
+
+   mean_field = sum(PTHS)/size(PTHS)
+   std_field = sqrt(sum(PTHS**2)/size(PTHS) - mean_field**2)
+   print *, "debug : main_ice_adjust.F90 - PTHS mean ", mean_field, ", std ", std_field
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
 #ifdef USE_OPENMP
+      print *, "debug : main_ice_adjust.F90 - OPENMP activated"
 !$OMP PARALLEL PRIVATE (D, YLSTACK, ITID, JBLK1, JBLK2)
 
       NTID = OMP_GET_MAX_THREADS()
@@ -337,6 +380,7 @@ PROGRAM MAIN_ICE_ADJUST
       DO IBL = JBLK1, JBLK2
 
 #ifdef USE_COLCALL
+         print *, "debug : main_ice_adjust.F90 - USE_COLCALL activated"
          DO JLON = 1, NPROMA
             D = D0
             D%NIB = JLON
@@ -361,7 +405,7 @@ PROGRAM MAIN_ICE_ADJUST
 #endif
 
 #ifdef USE_STACK
-         print *, "debug : main_ice_adjust.F90 - call ice_adjust"
+            print *, "debug : main_ice_adjust.F90 - call ice_adjust with USE_STACK"
             CALL ICE_ADJUST(D, PHYEX%CST, PHYEX%RAIN_ICE_PARAMN, PHYEX%NEBN, PHYEX%TURBN, PHYEX%PARAM_ICEN, &
             & TBUCONF, KRR, HBUNAME,     &
             & PTSTEP, ZSIGQSAT(:, IBL), PRHODJ=PRHODJ(:, :, IBL), &
@@ -382,9 +426,11 @@ PROGRAM MAIN_ICE_ADJUST
             & PHLI_HRI=PHLI_HRI(:, :, IBL), PHLI_HCF=PHLI_HCF(:, :, IBL)                                                          &
             &, YDSTACK=YLSTACK &
             &)
-         print *, "debug : main_ice_adjust.F90 - end ice_adjust"
+            print *, "debug : main_ice_adjust.F90 - end ice_adjust"
 #else
-   print *, "debug : main_ice_adjust.F90 - call ice_adjust"
+            print *, "debug : main_ice_adjust.F90 - call ice_adjust without USE_STACK"
+            print *, "debug : main_ice_adjust.F90 - IBL = ", IBL
+            print *, "debug : main_ice_adjust.F90 - size of pexnref ", size(PEXNREF)
             CALL ICE_ADJUST(D, PHYEX%CST, PHYEX%RAIN_ICE_PARAMN, PHYEX%NEBN, PHYEX%TURBN, PHYEX%PARAM_ICEN, &
             & TBUCONF, KRR, HBUNAME,     &
             & PTSTEP, ZSIGQSAT(:, IBL), PRHODJ=PRHODJ(:, :, IBL), &
@@ -403,7 +449,7 @@ PROGRAM MAIN_ICE_ADJUST
           & PICE_CLD_WGT=ZICE_CLD_WGT(:, IBL),                                                                                     &
             & PHLC_HRC=PHLC_HRC(:, :, IBL), PHLC_HCF=PHLC_HCF(:, :, IBL),                                                         &
             & PHLI_HRI=PHLI_HRI(:, :, IBL), PHLI_HCF=PHLI_HCF(:, :, IBL))
-   print *, "debug : main_ice_adjust.F90 - end ice_adjust"
+            print *, "debug : main_ice_adjust.F90 - end ice_adjust"
 #endif
 
 #ifdef USE_COLCALL
@@ -432,6 +478,49 @@ PROGRAM MAIN_ICE_ADJUST
       ZTD = ZTD + (TED - TSD)
 
    END DO
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Debug output !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+   print *, "debug : main_ice_adjust.F90 - Fields INOUT (After call)"
+
+   mean_field = sum(PRS(:,:,1,:))/size(PRS(:,:,1,:))
+   std_field = sqrt(sum(PRS(:,:,1,:)**2)/size(PRS(:,:,1,:)) - mean_field**2)
+   print *, "debug : main_ice_adjust.F90 - PRVS mean ", mean_field, ", std ", std_field
+
+   mean_field = sum(PRS(:,:,2,:))/size(PRS(:,:,2,:))
+   std_field = sqrt(sum(PRS(:,:,2,:)**2)/size(PRS(:,:,2,:)) - mean_field**2)
+   print *, "debug : main_ice_adjust.F90 - PRCS mean ", mean_field, ", std ", std_field
+
+   mean_field = sum(PRS(:,:,4,:))/size(PRS(:,:,4,:))
+   std_field = sqrt(sum(PRS(:,:,4,:)**2)/size(PRS(:,:,4,:)) - mean_field**2)
+   print *, "debug : main_ice_adjust.F90 - PRIS mean ", mean_field, ", std ", std_field
+
+   mean_field = sum(PTHS)/size(PTHS)
+   std_field = sqrt(sum(PTHS**2)/size(PTHS) - mean_field**2)
+   print *, "debug : main_ice_adjust.F90 - PTHS mean ", mean_field, ", std ", std_field
+
+   !!!!
+   print *, "debug : main_ice_adjust.F90 - Fields OUT (After call)"
+
+   mean_field = sum(PHLC_HCF)/size(PHLC_HCF)
+   std_field = sqrt(sum(PHLC_HCF**2)/size(PHLC_HCF) - mean_field**2)
+   print *, "debug : main_ice_adjust.F90 - PHLC_HCF mean ", mean_field, ", std ", std_field
+
+   mean_field = sum(PHLC_HRC)/size(PHLC_HRC)
+   std_field = sqrt(sum(PHLC_HRC**2)/size(PHLC_HRC) - mean_field**2)
+   print *, "debug : main_ice_adjust.F90 - PHLC_HRC mean ", mean_field, ", std ", std_field
+
+   mean_field = sum(PHLI_HCF)/size(PHLI_HCF)
+   std_field = sqrt(sum(PHLI_HCF**2)/size(PHLI_HCF) - mean_field**2)
+   print *, "debug : main_ice_adjust.F90 - PHLI_HCF mean ", mean_field, ", std ", std_field
+
+   mean_field = sum(PHLI_HRI)/size(PHLI_HRI)
+   std_field = sqrt(sum(PHLI_HRI**2)/size(PHLI_HRI) - mean_field**2)
+   print *, "debug : main_ice_adjust.F90 - PHLC_HRC mean ", mean_field, ", std ", std_field
+
+   
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
    IF (LHOOK) CALL DR_HOOK('MAIN', 1, ZHOOK_HANDLE)
 

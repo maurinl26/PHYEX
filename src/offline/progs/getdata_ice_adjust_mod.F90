@@ -93,6 +93,7 @@ CONTAINS
       KRR = 6
       NGPTOT = NPROMA*NGPBLKS
 
+      print *, "debug : getdata_ice_adjust_mod.F90 - NGPTOT = ", NGPTOT
       print *, "debug : getdata_ice_adjust_mod.F90 - reading .dat files"
 
       IBL = 1
@@ -188,6 +189,9 @@ CONTAINS
          OPEN (IFILE, FILE=TRIM(CLFILE), FORM='UNFORMATTED')
 
          READ (IFILE) KLON, KDUM, KLEV
+         
+         print *, "debug : getdata_ice_adjust.F90 - File reading, IBL = ", IBL
+         print *, "debug : getdata_ice_adjust.F90 - KLON =", KLON, " KDUM =", KDUM, "KLEV = ", KLEV
 
          IF (IBL == 1) THEN
             ALLOCATE (PRHODJ(NGPTOT, KLEV, 1))
@@ -244,7 +248,10 @@ CONTAINS
 
       END DO
 
+      print *, "debug : getdata_ice_adjust.F90 - size of PRHODJ = ", size(PRHODJ)
+      
       IF (NFLEVG /= KLEV) THEN
+         print *, "debug : getdata_ice_adjust.F90 - interpolate activated"
          CALL INTERPOLATE(NFLEVG, IOFF, PRHODJ)
          CALL INTERPOLATE(NFLEVG, IOFF, PEXNREF)
          CALL INTERPOLATE(NFLEVG, IOFF, PRHODREF)
@@ -267,6 +274,7 @@ CONTAINS
          CALL INTERPOLATE(NFLEVG, IOFF, PHLI_HCF_OUT)
       END IF
 
+      print *, "debug : getdata_ice_adjust.F90 - call replicate with IOFF", IOFF
       CALL REPLICATE(IOFF, PRHODJ(:, :, 1))
       CALL REPLICATE(IOFF, PEXNREF(:, :, 1))
       CALL REPLICATE(IOFF, PRHODREF(:, :, 1))
@@ -288,6 +296,7 @@ CONTAINS
       CALL REPLICATE(IOFF, PHLI_HRI_OUT(:, :, 1))
       CALL REPLICATE(IOFF, PHLI_HCF_OUT(:, :, 1))
 
+      print *, "debug : getdata_ice_adjust.F90 - call npromize with NPROMA = ", NPROMA
       CALL NPROMIZE(NPROMA, PRHODJ, PRHODJ_B)
       CALL NPROMIZE(NPROMA, PEXNREF, PEXNREF_B)
       CALL NPROMIZE(NPROMA, PRHODREF, PRHODREF_B)
