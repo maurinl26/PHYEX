@@ -10,10 +10,20 @@ set(CMAKE_Fortran_FLAGS "${CMAKE_Fortran_FLAGS} -fbounds-check -finit-real=snan 
 set(CMAKE_Fortran_FLAGS "${CMAKE_Fortran_FLAGS} -fdefault-real-8 -fdefault-double-8")
 
 # WITHOUT_CXXDEMANGLE
-add_compile_definitions(LINUX)
-add_compile_definitions(LITTLE_ENDIAN)
-add_compile_definitions(LITTLE)
-add_compile_definitions(WITHOUT_CXXDEMANGLE)
+add_compile_definitions(LINUX ON)
+add_compile_definitions(LITTLE_ENDIAN ON)
+add_compile_definitions(LITTLE ON)
+add_compile_definitions(WITHOUT_CXXDEMANGLE ON)
+
+# Custom definitions
+add_compile_definitions(USE_OPENMP ON)
+add_compile_definitions(USE_COLLCAL OFF)
+
+# TODO : debug YDSTACK use
+# add_compile_definitions(USE_STACK OFF)
+
+# TODO : debug OPENACC use
+# add_compile_definitions(_OPENACC OFF)
 
 
 

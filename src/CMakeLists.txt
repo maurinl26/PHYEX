@@ -72,7 +72,7 @@ target_sources(common
 ./common/aux/mode_gradient_u_phy.F90
 ./common/aux/mode_gradient_v_phy.F90
 ./common/aux/mode_gradient_w_phy.F90
-./common/aux/mode_ini_cst.F90
+# ./common/aux/mode_ini_cst.F90
 ./common/micro/mode_ini_cloudpar.F90
 ./common/aux/mode_io_field_write.F90
 ./common/aux/mode_io_field_write_phy.F90
@@ -294,6 +294,8 @@ target_link_libraries(common
     PRIVATE
         fiat
         parkind_dp
+)
+target_link_libraries(common
     PUBLIC
         struct_mod
         )
@@ -323,6 +325,8 @@ target_link_libraries(exe_support
     PRIVATE
         fiat
         parkind_dp
+)
+target_link_libraries(exe_support
     PUBLIC
         struct_mod
         )
