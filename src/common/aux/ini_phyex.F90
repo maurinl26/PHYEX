@@ -192,10 +192,10 @@ SUBROUTINE INI_PHYEX(HPROGRAM, TPFILE, LDNEEDNAM, KLUOUT, KFROM, KTO, &
          END IF
       END IF
 
-      print *, "debug : ini_phyex - start param_icen_init"
+      print *, "debug : ini_phyex.F90 - start param_icen_init"
       CALL PARAM_ICEN_INIT(HPROGRAM, TPFILE, LDNEEDNAM, KLUOUT, &
                           &LDDEFAULTVAL, LDREADNAM, LDCHECK, KPRINT)
-      print *, "debug : ini_phyex - end param_icen_init"
+      print *, "debug : ini_phyex.F90 - end param_icen_init"
 
       IF (CMICRO == 'LIMA') THEN
          CALL PARAM_LIMA_INIT(HPROGRAM, TPFILE, LDNEEDNAM, KLUOUT, &
