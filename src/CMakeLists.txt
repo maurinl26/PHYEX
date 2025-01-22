@@ -11,6 +11,45 @@ FetchContent_Declare(fiat
 )
 FetchContent_MakeAvailable(fiat)
 
+
+add_library(serialization STATIC)
+
+target_sources(serialization 
+    PUBLIC
+# ./offline/serialization/abor1.F90
+# ./offline/serialization/diag_mod.F90
+# ./offline/serialization/diff_mod.F90
+# ./offline/serialization/expand_mod.F90
+# ./offline/serialization/mycpu.c
+# ./offline/serialization/parkind1.F90
+# ./offline/serialization/routines.F90
+./offline/serialization/serialize_mod.F90
+# ./offline/serialization/surface_fields_mix.F90
+# ./offline/serialization/timer_mod.F90
+# ./offline/serialization/yoecldp.F90
+# ./offline/serialization/yoephli.F90
+# ./offline/serialization/yoethf.F90
+# ./offline/serialization/yomcst.F90
+# ./offline/serialization/yomct0.F90
+# ./offline/serialization/yomct3.F90
+# ./offline/serialization/yomdim.F90
+# ./offline/serialization/yomdyn.F90
+# ./offline/serialization/yomjfh.F90
+# ./offline/serialization/yomlun_ifsaux.F90
+# ./offline/serialization/yomlun.F90
+# ./offline/serialization/yommp0.F90
+# ./offline/serialization/yomphy2.F90
+# ./offline/serialization/yomphyder.F90
+)
+
+target_link_libraries(serialization
+    PUBLIC
+    Serialbox::Serialbox_Fortran
+    parkind_dp
+)
+
+
+
 add_library(struct_mod STATIC)
 
 target_sources(struct_mod
@@ -345,4 +384,5 @@ target_link_libraries(main_ice_adjust
 target_link_libraries(main_ice_adjust
     PUBLIC 
     struct_mod
+    serialization
 )

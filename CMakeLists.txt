@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.22)
 project(phyex
     LANGUAGES
     Fortran
+    C
 )
 
 set(CMAKE_Fortran_FLAGS "-ffree-line-length-512 -fconvert=swap")
@@ -18,6 +19,8 @@ add_compile_definitions(WITHOUT_CXXDEMANGLE ON)
 # Custom definitions
 add_compile_definitions(USE_OPENMP ON)
 add_compile_definitions(USE_COLLCAL OFF)
+# add_compile_definitions(HAVE_SERIALBOX ON)
+set(HAVE_SERIALBOX ON)
 
 # TODO : debug YDSTACK use
 # add_compile_definitions(USE_STACK OFF)
@@ -29,4 +32,6 @@ add_compile_definitions(USE_COLLCAL OFF)
 
 add_subdirectory(src)
 
+# Find Serialbox
 
+find_package(Serialbox)
