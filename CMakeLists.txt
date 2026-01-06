@@ -53,27 +53,30 @@ endif()
 #-----------------------------------------------------------------------
 
 # Common sources
+# Common sources
 file(GLOB PHYEX_SOURCES
-     ${CMAKE_CURRENT_SOURCE_DIR}/aux/*F90
-     ${CMAKE_CURRENT_SOURCE_DIR}/turb/*F90
-     ${CMAKE_CURRENT_SOURCE_DIR}/micro/*F90
-     ${CMAKE_CURRENT_SOURCE_DIR}/conv/*F90
+     ${CMAKE_CURRENT_SOURCE_DIR}/src/common/aux/*F90
+     ${CMAKE_CURRENT_SOURCE_DIR}/src/common/turb/*F90
+     ${CMAKE_CURRENT_SOURCE_DIR}/src/common/micro/*F90
+     ${CMAKE_CURRENT_SOURCE_DIR}/src/common/conv/*F90
 )
 
 # Source for the python binding
-if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/pyphyex.F90)
-  list(APPEND PHYEX_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/pyphyex.F90)
+# Source for the python binding
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/src/common/pyphyex.F90)
+  list(APPEND PHYEX_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/common/pyphyex.F90)
 endif()
 
 # Sources for the programs
+# Sources for the programs
 if(HAVE_PHYEX_BUILD_PROGS)
   # Entry points
-  file(GLOB PHYEXPROGS_ENTRYPOINTS progs/main_*.F90)
+  file(GLOB PHYEXPROGS_ENTRYPOINTS src/offline/progs/main_*.F90)
 
   # Source files
   file(GLOB PHYEXPROGS_SOURCES
-       ${CMAKE_CURRENT_SOURCE_DIR}/support/*90
-       ${CMAKE_CURRENT_SOURCE_DIR}/progs/*90
+       ${CMAKE_CURRENT_SOURCE_DIR}/src/offline/support/*90
+       ${CMAKE_CURRENT_SOURCE_DIR}/src/offline/progs/*90
   ) 
   list(REMOVE_ITEM PHYEXPROGS_SOURCES ${PHYEXPROGS_ENTRYPOINTS})
   list(APPEND PHYEX_SOURCES ${PHYEXPROGS_SOURCES})
@@ -81,17 +84,17 @@ endif()
 
 # Headers
 set(GLOB PHYEX_HEADERS
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/phyex/turb>
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/phyex/micro>
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/phyex/conv>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/common/phyex/turb>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/common/phyex/micro>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/common/phyex/conv>
 )
 
 # Include directories
 set(PHYEX_INCLUDEDIRS
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/aux>
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/micro>
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/turb>
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/conv>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/common/aux>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/common/micro>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/common/turb>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/common/conv>
 )
 
 #---------------
@@ -187,9 +190,9 @@ if(DEFINED SKBUILD)
   find_package(Python REQUIRED COMPONENTS NumPy)
 
   # Cython configuration
-  set(CYTHON_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/bridge/_phyex_wrapper.pyx")
+  set(CYTHON_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/cmake/bridge/_phyex_wrapper.pyx")
   set(CYTHON_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/_phyex_wrapper.c")
-  set(BRIDGE_FORTRAN_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/bridge/phyex_bridge.F90")
+  set(BRIDGE_FORTRAN_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/cmake/bridge/phyex_bridge.F90")
 
   # Check if Cython is available
   execute_process(
