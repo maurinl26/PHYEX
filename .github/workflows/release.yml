@@ -1,0 +1,167 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version_tag:
+        description: 'Version tag (e.g., v0.8.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  # Create transformation packages for all models
+  transform:
+    name: Transform ${{ matrix.model }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        model: [arome, lmdz, mesonh]
+      fail-fast: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Get version
+        id: version
+        run: |
+          VERSION="${{ github.event_name == 'push' && github.ref_name || github.event.inputs.version_tag }}"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Transform code
+        run: |
+          python .github/scripts/transform_phyex.py \
+            --model ${{ matrix.model }} \
+            --version ${{ steps.version.outputs.version }} \
+            --output-dir ${{ matrix.model }}_release \
+            --verbose
+
+      - name: Create archive
+        run: |
+          tar -czf "${{ matrix.model }}_${{ steps.version.outputs.version }}.tar.gz" \
+            -C ${{ matrix.model }}_release .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.model }}-${{ steps.version.outputs.version }}
+          path: ${{ matrix.model }}_${{ steps.version.outputs.version }}.tar.gz
+          retention-days: 90
+
+  # Create AROME branch (only model that needs a branch)
+  create-arome-branch:
+    name: Create AROME branch
+    needs: transform
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version
+        id: version
+        run: |
+          VERSION="${{ github.event_name == 'push' && github.ref_name || github.event.inputs.version_tag }}"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "branch=arome_${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Download AROME artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: arome-${{ steps.version.outputs.version }}
+
+      - name: Extract and create branch
+        run: |
+          mkdir arome_release
+          tar -xzf arome_${{ steps.version.outputs.version }}.tar.gz -C arome_release
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git checkout --orphan ${{ steps.version.outputs.branch }}
+          git rm -rf . || true
+
+          cp -r arome_release/src .
+          cp arome_release/*.json . 2>/dev/null || true
+
+          cat > README.md << 'EOF'
+          # PHYEX AROME
+
+          Transformed from master ${{ steps.version.outputs.version }}
+
+          **CPU-only:** OpenACC removed, DO loops
+          EOF
+
+          git add .
+          git commit -m "AROME ${{ steps.version.outputs.version }}"
+          git push origin ${{ steps.version.outputs.branch }} --force
+          git tag ${{ steps.version.outputs.version }}_arome
+          git push origin ${{ steps.version.outputs.version }}_arome
+
+  # Create GitHub release with all packages
+  release:
+    name: Create GitHub Release
+    needs: [transform, create-arome-branch]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+
+    steps:
+      - name: Get version
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: PHYEX ${{ steps.version.outputs.version }}
+          body: |
+            ## PHYEX Release ${{ steps.version.outputs.version }}
+
+            ### Packages
+
+            - **AROME** - CPU-only (OpenACC removed)
+              - Branch: `arome_${{ steps.version.outputs.version }}`
+              - Archive: `arome_${{ steps.version.outputs.version }}.tar.gz`
+
+            - **LMDZ** - CPU-only (OpenACC removed)
+              - Archive: `lmdz_${{ steps.version.outputs.version }}.tar.gz`
+
+            - **Meso-NH** - GPU-capable (OpenACC preserved)
+              - Archive: `mesonh_${{ steps.version.outputs.version }}.tar.gz`
+
+            ### Usage
+
+            ```bash
+            # AROME (clone branch)
+            git clone -b arome_${{ steps.version.outputs.version }} ${{ github.server_url }}/${{ github.repository }}.git
+
+            # LMDZ or Meso-NH (download archive)
+            wget ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/lmdz_${{ steps.version.outputs.version }}.tar.gz
+            ```
+          files: |
+            artifacts/arome-${{ steps.version.outputs.version }}/arome_${{ steps.version.outputs.version }}.tar.gz
+            artifacts/lmdz-${{ steps.version.outputs.version }}/lmdz_${{ steps.version.outputs.version }}.tar.gz
+            artifacts/mesonh-${{ steps.version.outputs.version }}/mesonh_${{ steps.version.outputs.version }}.tar.gz

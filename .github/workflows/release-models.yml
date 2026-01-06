@@ -1,0 +1,224 @@
+name: Release Models
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version_tag:
+        description: 'Version tag (e.g., v0.8.0)'
+        required: true
+        type: string
+      models:
+        description: 'Models to release (comma-separated: arome,lmdz,mesonh or "all")'
+        required: false
+        default: 'all'
+        type: string
+      push_branches:
+        description: 'Push branches and tags to remote'
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  # Matrix strategy: one job per model
+  release:
+    name: Release ${{ matrix.model }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        model: [arome, lmdz, mesonh]
+      fail-fast: false  # Continue other models if one fails
+
+    steps:
+      - name: Check if model should be released
+        id: check
+        run: |
+          MODELS="${{ github.event.inputs.models || 'all' }}"
+          MODEL="${{ matrix.model }}"
+
+          if [[ "$MODELS" == "all" ]] || [[ ",$MODELS," == *",$MODEL,"* ]]; then
+            echo "enabled=true" >> $GITHUB_OUTPUT
+          else
+            echo "enabled=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Checkout repository
+        if: steps.check.outputs.enabled == 'true'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        if: steps.check.outputs.enabled == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        if: steps.check.outputs.enabled == 'true'
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Determine version
+        if: steps.check.outputs.enabled == 'true'
+        id: version
+        run: |
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            VERSION="${GITHUB_REF#refs/tags/}"
+          else
+            VERSION="${{ github.event.inputs.version_tag }}"
+          fi
+          MODEL="${{ matrix.model }}"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "branch_name=${MODEL}_${VERSION}" >> $GITHUB_OUTPUT
+          echo "tag_name=${VERSION}_${MODEL}" >> $GITHUB_OUTPUT
+
+      - name: Checkout version tag
+        if: steps.check.outputs.enabled == 'true'
+        run: git checkout ${{ steps.version.outputs.version }}
+
+      - name: Transform code
+        if: steps.check.outputs.enabled == 'true'
+        run: |
+          python .github/scripts/transform_phyex.py \
+            --model ${{ matrix.model }} \
+            --version ${{ steps.version.outputs.version }} \
+            --output-dir ${{ matrix.model }}_release \
+            --verbose
+
+      - name: Create branch and commit
+        if: steps.check.outputs.enabled == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          BRANCH="${{ steps.version.outputs.branch_name }}"
+          MODEL="${{ matrix.model }}"
+          VERSION="${{ steps.version.outputs.version }}"
+
+          # Create orphan branch
+          git checkout --orphan "$BRANCH"
+          git rm -rf . || true
+
+          # Copy transformed files
+          cp -r ${MODEL}_release/src .
+
+          # Copy config files (if they exist)
+          for file in ${MODEL}_release/*.json ${MODEL}_release/*.txt; do
+            [[ -f "$file" ]] && cp "$file" . || true
+          done
+
+          # Create README with model-specific info
+          case "$MODEL" in
+            arome)
+              TRANSFORMS="Array-syntax → DO loops, OpenACC removed, CPU-only"
+              GPU_INFO=""
+              ;;
+            lmdz)
+              TRANSFORMS="Array-syntax → DO loops, OpenACC removed, CPU-only"
+              GPU_INFO=""
+              ;;
+            mesonh)
+              TRANSFORMS="Array-syntax → DO loops, OpenACC PRESERVED, GPU-capable"
+              GPU_INFO="
+
+          ## GPU Support
+          This code retains OpenACC directives:
+          \`\`\`bash
+          nvfortran -acc -Minfo=accel -DMNH_OPENACC source.f90
+          \`\`\`"
+              ;;
+          esac
+
+          cat > README.md << EOF
+          # PHYEX ${MODEL^^} Branch
+
+          Automated transformation from master ${VERSION}
+
+          **Transformations:** ${TRANSFORMS}
+
+          **Generated:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          ${GPU_INFO}
+          EOF
+
+          git add .
+          git commit -m "${MODEL^^} release ${VERSION}
+
+          Automated transformation from master branch.
+
+          Generated: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+      - name: Push branch and tag
+        if: |
+          steps.check.outputs.enabled == 'true' &&
+          ((github.event_name == 'push') || (github.event.inputs.push_branches == 'true'))
+        run: |
+          BRANCH="${{ steps.version.outputs.branch_name }}"
+          TAG="${{ steps.version.outputs.tag_name }}"
+
+          git push origin "$BRANCH" --force
+          git tag -a "$TAG" -m "${{ matrix.model }} release ${{ steps.version.outputs.version }}"
+          git push origin "$TAG"
+
+      - name: Create archive
+        if: steps.check.outputs.enabled == 'true'
+        run: |
+          tar -czf "${{ matrix.model }}_${{ steps.version.outputs.version }}.tar.gz" \
+            -C ${{ matrix.model }}_release . 2>/dev/null || true
+
+      - name: Upload archive
+        if: steps.check.outputs.enabled == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.model }}-release-${{ steps.version.outputs.version }}
+          path: ${{ matrix.model }}_${{ steps.version.outputs.version }}.tar.gz
+          retention-days: 90
+
+      - name: Create GitHub Release
+        if: |
+          steps.check.outputs.enabled == 'true' &&
+          github.event_name == 'push'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.version.outputs.tag_name }}
+          name: ${{ matrix.model }} Release ${{ steps.version.outputs.version }}
+          body: |
+            ## PHYEX ${{ matrix.model }} Release ${{ steps.version.outputs.version }}
+
+            **Transformations Applied:**
+            ${{ matrix.model == 'arome' && '- ✅ Array-syntax → DO loops\n- ✅ OpenACC removed (CPU-only)\n- ✅ Shuman operators → subroutine calls' || '' }}
+            ${{ matrix.model == 'lmdz' && '- ✅ Array-syntax → DO loops\n- ✅ OpenACC removed (CPU-only)\n- ✅ Shuman operators → subroutine calls' || '' }}
+            ${{ matrix.model == 'mesonh' && '- ✅ Array-syntax → DO loops\n- ✅ Files → lowercase .f90\n- ✅ **OpenACC PRESERVED (GPU-capable)**' || '' }}
+
+            **Branch:** `${{ steps.version.outputs.branch_name }}`
+
+            ```bash
+            git clone -b ${{ steps.version.outputs.branch_name }} ${{ github.server_url }}/${{ github.repository }}.git
+            ```
+          files: ${{ matrix.model }}_${{ steps.version.outputs.version }}.tar.gz
+
+  summary:
+    name: Release Summary
+    needs: release
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Generate summary
+        run: |
+          echo "## Model Release Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Model | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| AROME | ${{ needs.release.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| LMDZ | ${{ needs.release.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Meso-NH | ${{ needs.release.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
