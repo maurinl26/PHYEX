@@ -64,62 +64,90 @@ jobs:
           path: ${{ matrix.model }}_${{ steps.version.outputs.version }}.tar.gz
           retention-days: 90
 
-  # Create AROME branch (only model that needs a branch)
-  create-arome-branch:
-    name: Create AROME branch
+  # Build AROME shared libraries
+  build-arome-binaries:
+    name: Build AROME binaries
     needs: transform
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Get version
         id: version
         run: |
           VERSION="${{ github.event_name == 'push' && github.ref_name || github.event.inputs.version_tag }}"
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "branch=arome_${VERSION}" >> $GITHUB_OUTPUT
 
       - name: Download AROME artifact
         uses: actions/download-artifact@v4
         with:
           name: arome-${{ steps.version.outputs.version }}
 
-      - name: Extract and create branch
+      - name: Extract transformed sources
         run: |
-          mkdir arome_release
-          tar -xzf arome_${{ steps.version.outputs.version }}.tar.gz -C arome_release
+          mkdir -p arome_build/src
+          tar -xzf arome_${{ steps.version.outputs.version }}.tar.gz -C arome_build
 
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gfortran cmake ninja-build
 
-          git checkout --orphan ${{ steps.version.outputs.branch }}
-          git rm -rf . || true
+      - name: Install ecbuild
+        run: |
+          git clone --depth 1 https://github.com/ecmwf/ecbuild.git
+          cd ecbuild
+          mkdir build && cd build
+          cmake .. -DCMAKE_INSTALL_PREFIX=$HOME/.local
+          make install
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-          cp -r arome_release/src .
-          cp arome_release/*.json . 2>/dev/null || true
+      - name: Copy CMake files
+        run: |
+          cp CMakeLists.txt arome_build/
+          cp -r cmake arome_build/
 
-          cat > README.md << 'EOF'
-          # PHYEX AROME
+      - name: Configure CMake
+        run: |
+          cd arome_build
+          mkdir build && cd build
+          cmake .. \
+            -GNinja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=$PWD/install \
+            -DHAVE_DOUBLE_PRECISION=ON \
+            -DHAVE_SINGLE_PRECISION=ON \
+            -DHAVE_PHYEX_BUILD_PROGS=OFF
 
-          Transformed from master ${{ steps.version.outputs.version }}
+      - name: Build
+        run: |
+          cd arome_build/build
+          ninja
 
-          **CPU-only:** OpenACC removed, DO loops
-          EOF
+      - name: Install
+        run: |
+          cd arome_build/build
+          ninja install
 
-          git add .
-          git commit -m "AROME ${{ steps.version.outputs.version }}"
-          git push origin ${{ steps.version.outputs.branch }} --force
-          git tag ${{ steps.version.outputs.version }}_arome
-          git push origin ${{ steps.version.outputs.version }}_arome
+      - name: Create binary archive
+        run: |
+          cd arome_build/build/install
+          tar -czf "${{ github.workspace }}/libphyex_arome_${{ steps.version.outputs.version }}.tar.gz" .
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: arome-binaries-${{ steps.version.outputs.version }}
+          path: libphyex_arome_${{ steps.version.outputs.version }}.tar.gz
+          retention-days: 90
+
 
   # Create GitHub release with all packages
   release:
     name: Create GitHub Release
-    needs: [transform, create-arome-branch]
+    needs: [transform, build-arome-binaries]
     runs-on: ubuntu-latest
     if: github.event_name == 'push'
 
@@ -143,8 +171,8 @@ jobs:
             ### Packages
 
             - **AROME** - CPU-only (OpenACC removed)
-              - Branch: `arome_${{ steps.version.outputs.version }}`
-              - Archive: `arome_${{ steps.version.outputs.version }}.tar.gz`
+              - Source: `arome_${{ steps.version.outputs.version }}.tar.gz`
+              - **Binaries (dp+sp):** `libphyex_arome_${{ steps.version.outputs.version }}.tar.gz`
 
             - **LMDZ** - CPU-only (OpenACC removed)
               - Archive: `lmdz_${{ steps.version.outputs.version }}.tar.gz`
@@ -155,13 +183,17 @@ jobs:
             ### Usage
 
             ```bash
-            # AROME (clone branch)
-            git clone -b arome_${{ steps.version.outputs.version }} ${{ github.server_url }}/${{ github.repository }}.git
+            # AROME raw transformed sources (for further transformations)
+            wget ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/arome_${{ steps.version.outputs.version }}.tar.gz
+
+            # AROME binaries (download shared libraries - includes libphyex_dp.so and libphyex_sp.so)
+            wget ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/libphyex_arome_${{ steps.version.outputs.version }}.tar.gz
 
             # LMDZ or Meso-NH (download archive)
             wget ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/lmdz_${{ steps.version.outputs.version }}.tar.gz
             ```
           files: |
             artifacts/arome-${{ steps.version.outputs.version }}/arome_${{ steps.version.outputs.version }}.tar.gz
+            artifacts/arome-binaries-${{ steps.version.outputs.version }}/libphyex_arome_${{ steps.version.outputs.version }}.tar.gz
             artifacts/lmdz-${{ steps.version.outputs.version }}/lmdz_${{ steps.version.outputs.version }}.tar.gz
             artifacts/mesonh-${{ steps.version.outputs.version }}/mesonh_${{ steps.version.outputs.version }}.tar.gz
