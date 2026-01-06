@@ -33,13 +33,20 @@ endif()
 #-----------------------------------------------------------------------
 
 # Fetch fiat from GitHub
-include(FetchContent)
-FetchContent_Declare(
-  fiat
-  GIT_REPOSITORY https://github.com/ecmwf-ifs/fiat
-  GIT_TAG        main
-)
-FetchContent_MakeAvailable(fiat)
+# Fetch fiat from GitHub
+option(PHYEX_FETCH_FIAT "Fetch fiat from GitHub" ON)
+
+if(PHYEX_FETCH_FIAT)
+  include(FetchContent)
+  FetchContent_Declare(
+    fiat
+    GIT_REPOSITORY https://github.com/ecmwf-ifs/fiat
+    GIT_TAG        main
+  )
+  FetchContent_MakeAvailable(fiat)
+else()
+  find_package(fiat REQUIRED)
+endif()
 
 #-----------------------------------------------------------------------
 # Source structure
