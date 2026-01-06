@@ -6,429 +6,56 @@ on:
       - 'v*'
   workflow_dispatch:
     inputs:
-      test_pypi:
-        description: 'Publish to Test PyPI instead of production'
-        required: false
-        type: boolean
-        default: false
       spack_version:
-        description: 'Version to publish to Spack (e.g., 0.1.0)'
+        description: 'Version to publish (e.g., 0.1.0)'
         required: false
         type: string
-      spack_test_only:
-        description: 'Test Spack package recipe without creating PR'
-        required: false
-        type: boolean
-        default: false
 
 permissions:
   contents: write
-  id-token: write
 
 jobs:
-  # ====================
-  # PyPI Publishing Jobs
-  # ====================
-
-  test:
-    name: Test Python Package
+  spack-create:
+    name: Spack Create
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ['3.11', '3.12']
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Setup Spack
+        uses: spack/setup-spack@v2
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Install system dependencies
+      - name: Spack Create
+        env:
+            SPACK_EDITOR: cat
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            gfortran \
-            cmake \
-            ninja-build
-
-      - name: Install ecbuild
-        run: |
-          git clone https://github.com/ecmwf/ecbuild.git
-          cd ecbuild
-          mkdir build && cd build
-          cmake .. -DCMAKE_INSTALL_PREFIX=$HOME/.local
-          make install
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
-
-      - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install build pytest pytest-cov numpy cython scikit-build-core
-
-      - name: Build package
-        run: |
-          python -m build
-
-      - name: Install package
-        run: |
-          pip install dist/*.whl
-
-      - name: Run tests
-        run: |
-          pytest tests/ -v
-
-  build-python:
-    name: Build Python Distribution
-    needs: test
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            gfortran \
-            cmake \
-            ninja-build
-
-      - name: Install ecbuild
-        run: |
-          git clone https://github.com/ecmwf/ecbuild.git
-          cd ecbuild
-          mkdir build && cd build
-          cmake .. -DCMAKE_INSTALL_PREFIX=$HOME/.local
-          make install
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
-
-      - name: Install build dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install build twine
-
-      - name: Build distribution packages
-        run: |
-          python -m build
-
-      - name: Check package metadata
-        run: |
-          twine check dist/*
-
-      - name: Upload distribution artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: python-package-distributions
-          path: dist/
-          retention-days: 7
-
-  publish-to-testpypi:
-    name: Publish to Test PyPI
-    if: github.event.inputs.test_pypi == 'true'
-    needs: build-python
-    runs-on: ubuntu-latest
-    environment:
-      name: testpypi
-      url: https://test.pypi.org/p/phyex
-
-    permissions:
-      id-token: write
-
-    steps:
-      - name: Download distribution artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: python-package-distributions
-          path: dist/
-
-      - name: Publish to Test PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          repository-url: https://test.pypi.org/legacy/
-
-  publish-to-pypi:
-    name: Publish to PyPI
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && github.event.inputs.test_pypi != 'true'
-    needs: build-python
-    runs-on: ubuntu-latest
-    environment:
-      name: pypi
-      url: https://pypi.org/p/phyex
-
-    permissions:
-      id-token: write
-
-    steps:
-      - name: Download distribution artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: python-package-distributions
-          path: dist/
-
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            VERSION="${{ github.ref_name }}"
+            VERSION="${VERSION#v}"
+          else
+            VERSION="${{ inputs.spack_version }}"
+          fi
+          
+          if [[ -z "$VERSION" ]]; then
+            echo "No version specified"
+            exit 1
+          fi
+          
+          URL="https://github.com/${{ github.repository }}/archive/refs/tags/v${VERSION}.tar.gz"
+          echo "Running spack create for $URL"
+          spack create --force $URL
 
   github-release:
     name: Create GitHub Release
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    needs: publish-to-pypi
     runs-on: ubuntu-latest
-
-    permissions:
-      contents: write
-
     steps:
-      - name: Download distribution artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: python-package-distributions
-          path: dist/
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          files: |
-            dist/*.tar.gz
-            dist/*.whl
+          generate_release_notes: true
           body: |
             ## PHYEX Package Release
-
-            ### Installation
-
-            #### PyPI
-            ```bash
-            pip install phyex==${{ github.ref_name }}
-            ```
-
-            #### Spack
+            
+            ### Spack
             ```bash
             spack install phyex@${{ github.ref_name }}
             ```
 
-            ### Links
-            - PyPI: https://pypi.org/project/phyex/${{ github.ref_name }}/
-            - Spack: https://packages.spack.io/package.html?name=phyex
-
-            ### Changes
-            See the commit history for details on what changed in this release.
-          generate_release_notes: true
-
-  # ====================
-  # Spack Publishing Jobs
-  # ====================
-
-  test-spack-recipe:
-    name: Test Spack Recipe
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            gfortran \
-            cmake \
-            git
-
-      - name: Install Spack
-        run: |
-          git clone -c feature.manyFiles=true --depth=2 https://github.com/spack/spack.git ~/spack
-          echo "export SPACK_ROOT=~/spack" >> $GITHUB_ENV
-          echo "~/spack/bin" >> $GITHUB_PATH
-
-      - name: Setup Spack
-        run: |
-          . ~/spack/share/spack/setup-env.sh
-          spack compiler find
-
-      - name: Copy package recipe to Spack
-        run: |
-          . ~/spack/share/spack/setup-env.sh
-          mkdir -p ~/spack/var/spack/repos/builtin/packages/phyex
-          cp package.py ~/spack/var/spack/repos/builtin/packages/phyex/
-
-      - name: Calculate package checksum
-        id: checksum
-        run: |
-          . ~/spack/share/spack/setup-env.sh
-          VERSION="${{ github.ref_name }}"
-          VERSION="${VERSION#v}"  # Remove 'v' prefix if present
-
-          # For tagged releases, calculate checksum from GitHub tarball
-          if [[ "${{ github.event_name }}" == "push" ]]; then
-            URL="https://github.com/${{ github.repository }}/archive/refs/tags/v${VERSION}.tar.gz"
-            wget "$URL" -O phyex.tar.gz
-            CHECKSUM=$(sha256sum phyex.tar.gz | awk '{print $1}')
-            echo "checksum=${CHECKSUM}" >> $GITHUB_OUTPUT
-            echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${{ github.event.inputs.spack_version }}" ]]; then
-            VERSION="${{ github.event.inputs.spack_version }}"
-            URL="https://github.com/${{ github.repository }}/archive/refs/tags/v${VERSION}.tar.gz"
-            wget "$URL" -O phyex.tar.gz
-            CHECKSUM=$(sha256sum phyex.tar.gz | awk '{print $1}')
-            echo "checksum=${CHECKSUM}" >> $GITHUB_OUTPUT
-            echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Update package recipe with checksum
-        run: |
-          . ~/spack/share/spack/setup-env.sh
-          VERSION="${{ steps.checksum.outputs.version }}"
-          CHECKSUM="${{ steps.checksum.outputs.checksum }}"
-
-          # Update the package.py with the correct checksum
-          sed -i "s/version(\"${VERSION}\", sha256=\"[^\"]*\")/version(\"${VERSION}\", sha256=\"${CHECKSUM}\")/" \
-            ~/spack/var/spack/repos/builtin/packages/phyex/package.py
-
-      - name: Audit package recipe
-        run: |
-          . ~/spack/share/spack/setup-env.sh
-          spack audit packages phyex
-
-      - name: Test package installation (without Python)
-        run: |
-          . ~/spack/share/spack/setup-env.sh
-          spack spec phyex~python
-          spack install --test=root phyex~python
-
-      - name: Test package installation (with Python)
-        run: |
-          . ~/spack/share/spack/setup-env.sh
-          spack spec phyex+python
-          spack install --test=root phyex+python
-
-      - name: Test package loading
-        run: |
-          . ~/spack/share/spack/setup-env.sh
-          spack load phyex+python
-          python -c "import phyex; print(f'PHYEX version: {phyex.__version__}')"
-
-      - name: Upload updated package recipe
-        uses: actions/upload-artifact@v4
-        with:
-          name: spack-package-recipe
-          path: ~/spack/var/spack/repos/builtin/packages/phyex/package.py
-          retention-days: 30
-
-  create-spack-pr:
-    name: Create Spack Pull Request
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && github.event.inputs.spack_test_only != 'true'
-    needs: test-spack-recipe
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout Spack repository
-        uses: actions/checkout@v4
-        with:
-          repository: spack/spack
-          token: ${{ secrets.SPACK_PR_TOKEN }}
-          fetch-depth: 0
-
-      - name: Download package recipe
-        uses: actions/download-artifact@v4
-        with:
-          name: spack-package-recipe
-          path: package-files
-
-      - name: Create branch and commit
-        run: |
-          VERSION="${{ github.ref_name }}"
-          VERSION="${VERSION#v}"
-
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          BRANCH_NAME="phyex-${VERSION}"
-          git checkout -b "${BRANCH_NAME}"
-
-          mkdir -p var/spack/repos/builtin/packages/phyex
-          cp package-files/package.py var/spack/repos/builtin/packages/phyex/
-
-          git add var/spack/repos/builtin/packages/phyex/package.py
-          git commit -m "phyex: add version ${VERSION}"
-
-          git push origin "${BRANCH_NAME}"
-
-      - name: Create Pull Request to Spack
-        uses: peter-evans/create-pull-request@v6
-        with:
-          token: ${{ secrets.SPACK_PR_TOKEN }}
-          commit-message: "phyex: add version ${{ github.ref_name }}"
-          title: "phyex: add version ${{ github.ref_name }}"
-          body: |
-            This PR adds version ${{ github.ref_name }} of PHYEX to Spack.
-
-            ## Package Information
-            - **Name**: phyex
-            - **Version**: ${{ github.ref_name }}
-            - **Homepage**: https://github.com/${{ github.repository }}
-
-            ## Changes
-            - Added new version ${{ github.ref_name }} with updated checksum
-            - Tested installation with and without Python bindings
-
-            ## Testing
-            ```bash
-            spack install --test=root phyex@${{ github.ref_name }}+python
-            spack install --test=root phyex@${{ github.ref_name }}~python
-            ```
-
-            Automated PR created by GitHub Actions.
-          branch: phyex-${{ github.ref_name }}
-          base: develop
-
-  # ====================
-  # Summary Job
-  # ====================
-
-  publish-summary:
-    name: Publish Summary
-    needs: [test, build-python, test-spack-recipe]
-    runs-on: ubuntu-latest
-    if: always()
-
-    steps:
-      - name: Generate Summary
-        run: |
-          echo "## Package Publication Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-          echo "### Python Package (PyPI)" >> $GITHUB_STEP_SUMMARY
-          echo "- Testing: ${{ needs.test.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Build: ${{ needs.build-python.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-          echo "### Spack Package" >> $GITHUB_STEP_SUMMARY
-          echo "- Recipe Testing: ${{ needs.test-spack-recipe.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-          if [[ "${{ github.event_name }}" == "push" && "${{ startsWith(github.ref, 'refs/tags/v') }}" == "true" ]]; then
-            echo "### Publication Status" >> $GITHUB_STEP_SUMMARY
-            echo "- PyPI: Package will be published to production PyPI" >> $GITHUB_STEP_SUMMARY
-            echo "- Spack: Pull request will be created to add this version" >> $GITHUB_STEP_SUMMARY
-            echo "- GitHub: Release will be created with package artifacts" >> $GITHUB_STEP_SUMMARY
-          elif [[ "${{ github.event.inputs.test_pypi }}" == "true" ]]; then
-            echo "### Publication Status" >> $GITHUB_STEP_SUMMARY
-            echo "- This is a test run - publishing to Test PyPI only" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "### Publication Status" >> $GITHUB_STEP_SUMMARY
-            echo "- This is a test run - no packages will be published" >> $GITHUB_STEP_SUMMARY
-          fi
