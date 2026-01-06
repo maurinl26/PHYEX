@@ -1,0 +1,171 @@
+name: Build and Publish Containers
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - python-bindings
+    tags:
+      - 'v*.*.*'
+  pull_request:
+    branches:
+      - main
+      - master
+      - python-bindings
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-containers:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+
+    strategy:
+      matrix:
+        variant:
+          - name: base
+            dockerfile: Dockerfile
+            platforms: linux/amd64
+            description: "Production runtime with PHYEX Python bindings"
+          - name: python
+            dockerfile: Dockerfile.python
+            platforms: linux/amd64
+            description: "Python development environment with editable install"
+          - name: dev
+            dockerfile: Dockerfile.dev
+            platforms: linux/amd64
+            description: "Full development environment with debugging tools"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          flavor: |
+            suffix=-${{ matrix.variant.name }},onlatest=true
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha
+
+      - name: Build and push Docker image
+        id: push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ${{ matrix.variant.dockerfile }}
+          platforms: ${{ matrix.variant.platforms }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Generate artifact attestation
+        if: github.event_name != 'pull_request'
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+      - name: Install Apptainer
+        if: github.event_name != 'pull_request'
+        run: |
+          sudo add-apt-repository -y ppa:apptainer/ppa
+          sudo apt update
+          sudo apt install -y apptainer
+
+      - name: Convert to Apptainer/Singularity SIF
+        if: github.event_name != 'pull_request'
+        run: |
+          IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -n 1)
+          apptainer build phyex-${{ matrix.variant.name }}.sif docker://${IMAGE_TAG}
+
+      - name: Upload Apptainer SIF artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: phyex-${{ matrix.variant.name }}-sif
+          path: phyex-${{ matrix.variant.name }}.sif
+          retention-days: 30
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-containers
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            artifacts/**/*.sif
+          body: |
+            ## PHYEX Container Images
+
+            ### Docker/Podman Usage
+            ```bash
+            docker pull ghcr.io/${{ github.repository }}:${{ github.ref_name }}-base
+            docker pull ghcr.io/${{ github.repository }}:${{ github.ref_name }}-python
+            docker pull ghcr.io/${{ github.repository }}:${{ github.ref_name }}-dev
+            ```
+
+            ### Apptainer/Singularity Usage
+            Download the SIF files from this release and run:
+            ```bash
+            apptainer run phyex-base.sif
+            apptainer run phyex-python.sif
+            apptainer run phyex-dev.sif
+            ```
+          generate_release_notes: true
+
+  summary:
+    needs: build-containers
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Build Summary
+        run: |
+          echo "## Container Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Built container variants:" >> $GITHUB_STEP_SUMMARY
+          echo "- base" >> $GITHUB_STEP_SUMMARY
+          echo "- python" >> $GITHUB_STEP_SUMMARY
+          echo "- dev" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Status: ${{ needs.build-containers.result }}" >> $GITHUB_STEP_SUMMARY

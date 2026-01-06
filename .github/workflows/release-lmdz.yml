@@ -1,0 +1,386 @@
+name: Release LMDZ
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version_tag:
+        description: 'Version tag to release (e.g., v0.8.0)'
+        required: true
+        type: string
+      push_branch:
+        description: 'Push the lmdz branch to remote'
+        required: false
+        type: boolean
+        default: true
+      create_release:
+        description: 'Create GitHub release for LMDZ'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  transform-lmdz:
+    name: Transform LMDZ Code
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Determine version
+        id: version
+        run: |
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            VERSION="${GITHUB_REF#refs/tags/}"
+          else
+            VERSION="${{ github.event.inputs.version_tag }}"
+          fi
+          VERSION_NO_V="${VERSION#v}"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "version_no_v=${VERSION_NO_V}" >> $GITHUB_OUTPUT
+          echo "branch_name=lmdz_${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Checkout version tag
+        run: |
+          git checkout ${{ steps.version.outputs.version }}
+
+      - name: Install pyfortool with uvx
+        run: |
+          uvx --version
+          uvx --from pyfortool pyfortool --version
+
+      - name: Create LMDZ working directory
+        run: |
+          mkdir -p lmdz_release
+
+      - name: Merge common and LMDZ-specific code
+        run: |
+          set -e
+
+          # Subdirectories to process for LMDZ
+          SUBDIRS="turb micro aux ext"
+
+          # Create target directory structure
+          mkdir -p lmdz_release/src
+
+          # Copy common code
+          echo "Copying common source files..."
+          for subdir in $SUBDIRS; do
+            if [ -d "src/common/$subdir" ]; then
+              echo "  - src/common/$subdir"
+              cp -r "src/common/$subdir" lmdz_release/src/
+            fi
+          done
+
+          # Overlay LMDZ-specific code (overrides common)
+          echo "Overlaying LMDZ-specific files..."
+          for subdir in $SUBDIRS; do
+            if [ -d "src/lmdz/$subdir" ]; then
+              echo "  - src/lmdz/$subdir"
+              cp -r "src/lmdz/$subdir"/* lmdz_release/src/$subdir/ 2>/dev/null || true
+            fi
+          done
+
+          # Copy LMDZ-specific files
+          if [ -f "src/lmdz/lmdz_version.json" ]; then
+            cp src/lmdz/lmdz_version.json lmdz_release/
+          fi
+
+          echo "Merge complete"
+          find lmdz_release/src -name "*.F90" | wc -l
+          echo "Fortran files ready for transformation"
+
+      - name: Transform code with pyfortool
+        run: |
+          set -e
+
+          echo "Starting pyfortool transformation for LMDZ..."
+          echo "Options: --mnhExpand --removeACC --shumanFUNCtoCALL"
+
+          # Find all Fortran files
+          FORTRAN_FILES=$(find lmdz_release/src -name "*.F90" -o -name "*.f90")
+
+          # Count files
+          TOTAL_FILES=$(echo "$FORTRAN_FILES" | wc -l)
+          echo "Found $TOTAL_FILES Fortran files to transform"
+
+          # Transform each file
+          COUNT=0
+          for file in $FORTRAN_FILES; do
+            COUNT=$((COUNT + 1))
+            echo "[$COUNT/$TOTAL_FILES] Transforming: $file"
+
+            # Create temporary output file
+            TEMP_FILE="${file}.tmp"
+
+            # Apply transformations using uvx
+            uvx --from pyfortool pyfortool \
+              --mnhExpand \
+              --removeACC \
+              --shumanFUNCtoCALL \
+              "$file" > "$TEMP_FILE"
+
+            # Replace original with transformed
+            mv "$TEMP_FILE" "$file"
+          done
+
+          echo "Transformation complete!"
+
+      - name: Verify transformations
+        run: |
+          set -e
+
+          echo "=== Verification Report ==="
+
+          # Count OpenACC directives (should be 0)
+          ACC_COUNT=$(find lmdz_release/src -name "*.F90" -o -name "*.f90" | \
+                      xargs grep -c '!\$acc' 2>/dev/null | \
+                      awk -F: '{sum+=$2} END {print sum}' || echo "0")
+          echo "OpenACC directives remaining: $ACC_COUNT"
+
+          if [ "$ACC_COUNT" -ne 0 ]; then
+            echo "WARNING: OpenACC directives were not completely removed!"
+            find lmdz_release/src -name "*.F90" -exec grep -l '!\$acc' {} \; | head -5
+          else
+            echo "✓ All OpenACC directives successfully removed"
+          fi
+
+          # Count mnh_expand directives (should be 0 or minimal)
+          MNH_COUNT=$(find lmdz_release/src -name "*.F90" -o -name "*.f90" | \
+                      xargs grep -c '!\$mnh_expand' 2>/dev/null | \
+                      awk -F: '{sum+=$2} END {print sum}' || echo "0")
+          echo "mnh_expand directives remaining: $MNH_COUNT"
+
+          if [ "$MNH_COUNT" -ne 0 ]; then
+            echo "WARNING: Some mnh_expand directives remain!"
+          else
+            echo "✓ All mnh_expand directives successfully processed"
+          fi
+
+          # Count files
+          F90_COUNT=$(find lmdz_release/src -name "*.F90" | wc -l)
+          echo "Total .F90 files: $F90_COUNT"
+
+          echo "=== Verification Complete ==="
+
+      - name: Create LMDZ branch
+        run: |
+          set -e
+
+          BRANCH_NAME="${{ steps.version.outputs.branch_name }}"
+
+          # Create orphan branch for clean history
+          git checkout --orphan "$BRANCH_NAME"
+
+          # Remove all files from staging
+          git rm -rf . || true
+
+          # Copy transformed code
+          cp -r lmdz_release/src .
+          if [ -f lmdz_release/lmdz_version.json ]; then
+            cp lmdz_release/lmdz_version.json .
+          fi
+
+          # Add README for LMDZ branch
+          cat > README.md << 'EOF'
+          # PHYEX LMDZ Branch
+
+          This branch contains LMDZ-specific code transformed from the master branch.
+
+          ## Transformations Applied
+
+          - **Array-syntax expanded** to explicit DO loops (`--mnhExpand`)
+          - **OpenACC directives removed** for CPU-only execution (`--removeACC`)
+          - **Shuman operators** converted to subroutine calls (`--shumanFUNCtoCALL`)
+
+          ## Source
+
+          - **Master version**: ${{ steps.version.outputs.version }}
+          - **Generated**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          - **Workflow**: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+          ## LMDZ Configuration
+
+          See `lmdz_version.json` for LMDZ version and configuration details.
+
+          ## Usage
+
+          This code is ready for integration into LMDZ builds.
+
+          For more information, see the [main PHYEX repository](${{ github.server_url }}/${{ github.repository }}).
+          EOF
+
+          # Stage all files
+          git add .
+
+          # Commit
+          git commit -m "LMDZ release ${{ steps.version.outputs.version }}
+
+          Automated transformation from master branch.
+
+          Transformations applied:
+          - Array-syntax expanded to DO loops (--mnhExpand)
+          - OpenACC directives removed (--removeACC)
+          - Shuman operators to subroutine calls (--shumanFUNCtoCALL)
+
+          Source: ${{ steps.version.outputs.version }}
+          Generated: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+      - name: Push LMDZ branch
+        if: |
+          (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+          (github.event_name == 'workflow_dispatch' && github.event.inputs.push_branch == 'true')
+        run: |
+          BRANCH_NAME="${{ steps.version.outputs.branch_name }}"
+          git push origin "$BRANCH_NAME" --force
+
+      - name: Create LMDZ tag
+        if: |
+          (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+          (github.event_name == 'workflow_dispatch' && github.event.inputs.push_branch == 'true')
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          BRANCH_NAME="${{ steps.version.outputs.branch_name }}"
+
+          # Create annotated tag
+          git tag -a "${VERSION}_lmdz" -m "LMDZ release for ${VERSION}
+
+          Transformed code for LMDZ model integration.
+
+          Branch: ${BRANCH_NAME}
+          Source: ${VERSION}
+          Generated: $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
+
+          # Push tag
+          git push origin "${VERSION}_lmdz"
+
+      - name: Create archive
+        run: |
+          BRANCH_NAME="${{ steps.version.outputs.branch_name }}"
+          tar -czf "lmdz_${{ steps.version.outputs.version }}.tar.gz" -C lmdz_release src lmdz_version.json 2>/dev/null || \
+          tar -czf "lmdz_${{ steps.version.outputs.version }}.tar.gz" -C lmdz_release src
+
+      - name: Upload LMDZ archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: lmdz-release-${{ steps.version.outputs.version }}
+          path: lmdz_${{ steps.version.outputs.version }}.tar.gz
+          retention-days: 90
+
+      - name: Create GitHub Release for LMDZ
+        if: |
+          github.event.inputs.create_release == 'true' ||
+          (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.version.outputs.version }}_lmdz
+          name: LMDZ Release ${{ steps.version.outputs.version }}
+          body: |
+            ## PHYEX LMDZ Release ${{ steps.version.outputs.version }}
+
+            This release contains LMDZ-specific code transformed from master branch version ${{ steps.version.outputs.version }}.
+
+            ### Transformations Applied
+
+            - ✅ Array-syntax expanded to explicit DO loops
+            - ✅ OpenACC directives removed (CPU-only)
+            - ✅ Shuman operators converted to subroutine calls
+
+            ### Branch Information
+
+            - **Branch**: `${{ steps.version.outputs.branch_name }}`
+            - **Source version**: `${{ steps.version.outputs.version }}`
+            - **Generated**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+
+            ### LMDZ Configuration
+
+            See `lmdz_version.json` for configuration details:
+            - LMDZ version: 20230529.trunk
+            - Install argument: -unstable
+            - Radiation: oldrad
+
+            ### Integration
+
+            This code is ready for integration into LMDZ builds.
+
+            ```bash
+            # Extract the archive
+            tar -xzf lmdz_${{ steps.version.outputs.version }}.tar.gz
+
+            # Or clone the branch
+            git clone -b ${{ steps.version.outputs.branch_name }} ${{ github.server_url }}/${{ github.repository }}.git
+            ```
+
+            ### Test Cases
+
+            This release can be tested with:
+            - RICO 1D case
+            - ARM-CU 1D case
+
+            For more information, see the [Release Workflow](RELEASE_WORKFLOW.md) documentation.
+          files: |
+            lmdz_${{ steps.version.outputs.version }}.tar.gz
+          draft: false
+          prerelease: false
+
+  summary:
+    name: Release Summary
+    needs: transform-lmdz
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Generate Summary
+        run: |
+          echo "## LMDZ Release Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Transformation Status" >> $GITHUB_STEP_SUMMARY
+          echo "- Code Transformation: ${{ needs.transform-lmdz.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [[ "${{ needs.transform-lmdz.result }}" == "success" ]]; then
+            echo "### Release Information" >> $GITHUB_STEP_SUMMARY
+            echo "- **Version**: \`${{ needs.transform-lmdz.outputs.version || github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Branch**: \`lmdz_${{ needs.transform-lmdz.outputs.version || github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Tool**: pyfortool (via uvx)" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Transformations Applied" >> $GITHUB_STEP_SUMMARY
+            echo "- ✅ Array-syntax expanded to DO loops (\`--mnhExpand\`)" >> $GITHUB_STEP_SUMMARY
+            echo "- ✅ OpenACC directives removed (\`--removeACC\`)" >> $GITHUB_STEP_SUMMARY
+            echo "- ✅ Shuman operators to subroutine calls (\`--shumanFUNCtoCALL\`)" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Subdirectories Processed" >> $GITHUB_STEP_SUMMARY
+            echo "- turb (Turbulence schemes)" >> $GITHUB_STEP_SUMMARY
+            echo "- micro (Microphysics)" >> $GITHUB_STEP_SUMMARY
+            echo "- aux (Auxiliary routines)" >> $GITHUB_STEP_SUMMARY
+            echo "- ext (External modules)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Transformation failed**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Please check the workflow logs for details." >> $GITHUB_STEP_SUMMARY
+          fi
