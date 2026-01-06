@@ -37,6 +37,14 @@ jobs:
           make install
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
+      - name: Setup Spack
+        uses: spack/setup-spack@v2
+
+      - name: Install Fiat via Spack
+        run: |
+          spack install fiat
+          echo "CMAKE_PREFIX_PATH=$(spack location -i fiat)" >> $GITHUB_ENV
+
       - name: Configure CMake
         run: |
           cd src/common
@@ -47,7 +55,9 @@ jobs:
             -DCMAKE_INSTALL_PREFIX=$PWD/install \
             -DHAVE_DOUBLE_PRECISION=ON \
             -DHAVE_SINGLE_PRECISION=OFF \
-            -DHAVE_PHYEX_BUILD_PROGS=ON
+            -DHAVE_PHYEX_BUILD_PROGS=ON \
+            -DPHYEX_FETCH_FIAT=OFF \
+            -DCMAKE_PREFIX_PATH=$CMAKE_PREFIX_PATH
 
       - name: Build
         run: |

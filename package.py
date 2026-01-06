@@ -27,6 +27,7 @@ class Phyex(CMakePackage):
     depends_on('ecbuild', type='build')
     depends_on('cmake@3.15:', type='build')
     depends_on('mpi')
+    depends_on('fiat')
     
     # Python dependencies
     depends_on('python@3.8:', type=('build', 'run'), when='+python')
@@ -38,6 +39,7 @@ class Phyex(CMakePackage):
         args = [
             self.define_from_variant('HAVE_DOUBLE_PRECISION', 'double_precision'),
             self.define_from_variant('HAVE_SINGLE_PRECISION', 'single_precision'),
+            self.define('PHYEX_FETCH_FIAT', 'OFF'),
         ]
         
         if '+python' in self.spec:
