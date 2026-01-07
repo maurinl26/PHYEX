@@ -11,6 +11,5 @@ var searchData=
   ['w2ijc_8',['w2ijc',['../namespacemodd__ch__aerosol.html#a6c36e1ce9b8aed4bef2ab57cc35d1ae3',1,'modd_ch_aerosol']]],
   ['w2jka_9',['w2jka',['../namespacemodd__ch__aerosol.html#ab092547845a9bf086e17c7519da0d229',1,'modd_ch_aerosol']]],
   ['w2jkb_10',['w2jkb',['../namespacemodd__ch__aerosol.html#af427d7183efc408561639eff66fa3608',1,'modd_ch_aerosol']]],
-  ['w2jkc_11',['w2jkc',['../namespacemodd__ch__aerosol.html#a8a76e59c031915219f2f3c76a1b086e7',1,'modd_ch_aerosol']]],
-  ['wp_12',['wp',['../namespacephyex__bridge.html#ab248bc81216ced952c4e8396e36ee703',1,'phyex_bridge']]]
+  ['w2jkc_11',['w2jkc',['../namespacemodd__ch__aerosol.html#a8a76e59c031915219f2f3c76a1b086e7',1,'modd_ch_aerosol']]]
 ];

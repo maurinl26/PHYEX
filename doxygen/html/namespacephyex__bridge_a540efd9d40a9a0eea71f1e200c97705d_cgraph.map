@@ -1,7 +1,0 @@
-<map id="phyex_bridge::c_shallow_convection_wrap" name="phyex_bridge::c_shallow_convection_wrap">
-<area shape="rect" id="Node000001" title=" " alt="" coords="5,5,188,45"/>
-<area shape="rect" id="Node000002" href="$namespacemode__ini__cst.html#af2066e378bd3931499b9bfc0ceee1019" title=" " alt="" coords="236,13,395,38"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="188,23,222,23,222,28,188,28"/>
-<area shape="rect" id="Node000003" href="$namespacemodd__cst.html#ae5437f3965838193900d47271179b487" title=" " alt="" coords="443,13,624,38"/>
-<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="395,23,429,23,429,28,395,28"/>
-</map>
