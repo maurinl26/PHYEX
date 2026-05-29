@@ -8,6 +8,10 @@ name: Python bindings (GPU / RunPods)
 # Pods are billed per-second; the job always tears the pod down (even on failure).
 
 on:
+  # Required merge gate: runs once when a PR enters the merge queue, so a paid
+  # GPU pod is only provisioned right before merge — not on every push.
+  # Enable the merge queue on master and mark this job a required status check.
+  merge_group:
   workflow_dispatch:
     inputs:
       gpu_type:
@@ -58,9 +62,10 @@ jobs:
       - name: Provision pod, build, test, teardown
         env:
           RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
-          GPU_TYPE: ${{ inputs.gpu_type }}
-          GPU_ARCH: ${{ inputs.gpu_arch }}
-          IMAGE: ${{ inputs.image }}
+          # inputs.* are empty on merge_group; fall back to defaults.
+          GPU_TYPE: ${{ inputs.gpu_type || 'NVIDIA GeForce RTX 4090' }}
+          GPU_ARCH: ${{ inputs.gpu_arch || 'cc89' }}
+          IMAGE: ${{ inputs.image || 'nvcr.io/nvidia/nvhpc:24.5-devel-cuda_multi-ubuntu22.04' }}
           SHA: ${{ github.sha }}
           REPO: ${{ github.repository }}
         run: bash ci/runpod_dispatch.sh

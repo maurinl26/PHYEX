@@ -144,6 +144,24 @@ CPU result at float32 tolerance. Run it by hand on any NVHPC + NVIDIA box:
 GPU_ARCH=cc89 bash ci/runpod_gpu_test.sh
 ```
 
+### Gating the merge on a GPU pass
+
+The job propagates the pod's `pytest` exit code back through SSH → `runpodctl`
+→ the Actions job (the teardown trap removes the pod without masking the code).
+To make a green GPU run **required** before merge, without paying for a GPU on
+every push:
+
+1. The workflow triggers on **`merge_group`**, so the pod spins up once when a
+   PR enters the merge queue (not per commit).
+2. On `master`: enable the **merge queue**, and under branch protection add
+   **“Build & test GPU wheel on RunPods”** to the required status checks.
+3. Add the `RUNPOD_API_KEY` repository secret.
+
+> The gate is only as strong as the test. Until config init is fixed (§4b),
+> the GPU test asserts finiteness/bounds (which zeros pass), so it gates "builds
+> + runs on GPU", not yet "physically correct". Commit a real golden reference
+> and assert agreement to make it a true correctness gate.
+
 ---
 
 ## 4b. Known limitations / open items
