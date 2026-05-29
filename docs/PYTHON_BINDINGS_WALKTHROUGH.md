@@ -200,8 +200,9 @@ every push:
 `INI_PHYEX` yet — `ice_adjust` does not need it). The other three routines carry
 the same partial-init pattern and should get the `ensure_phyex_init` treatment.
 
-**Library noise.** `INI_PHYEX`/`INI_RAIN_ICE` print microphysics constants to
-stdout on the first call; route `IULOUT` to a scratch unit before shipping.
+**Library noise — fixed.** `ensure_phyex_init` routes `INI_PHYEX`'s `IULOUT` to a
+Fortran `SCRATCH` unit, so importing/using the library no longer dumps
+microphysics constants to stdout.
 
 **Next step to "well tested" physics:** complete config initialization in
 `phyex_bridge.F90` (fill the `*_t` config structures the way the offline

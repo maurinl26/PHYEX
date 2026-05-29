@@ -50,7 +50,9 @@ CONTAINS
         INTEGER :: IULOUT
         REAL :: ZDZMIN
         IF (G_PHYEX_INIT) RETURN
-        IULOUT = 6
+        ! Send INI_PHYEX's informational output to a scratch unit instead of
+        ! stdout, so importing/using the library doesn't dump constants.
+        OPEN(NEWUNIT=IULOUT, STATUS='SCRATCH')
         ZDZMIN = 20.0
         TPFILE%NLU = 0
         CALL INI_PHYEX('AROME ', TPFILE, .TRUE., IULOUT, 0, 1,            &
