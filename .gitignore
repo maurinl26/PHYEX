@@ -5,3 +5,19 @@
 # Eclipse project files
 /.cproject
 /.project
+
+# IDE
+/.idea/
+/.vscode/
+
+# Python / build artifacts
+/build/
+/dist/
+*.egg-info/
+__pycache__/
+*.py[cod]
+*.so
+.pytest_cache/
+
+# Cython generated C sources
+cmake/bridge/*.c

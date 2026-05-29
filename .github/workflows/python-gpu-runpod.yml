@@ -1,0 +1,66 @@
+name: Python bindings (GPU / RunPods)
+
+# Manually-dispatched OpenACC GPU test. Provisions a cheap consumer GPU pod
+# (RTX 4090/3090) on RunPods, builds the GPU wheel with NVHPC nvfortran, and
+# runs the CuPy correctness tests against the CPU golden reference.
+#
+# Requires repository secret RUNPOD_API_KEY.
+# Pods are billed per-second; the job always tears the pod down (even on failure).
+
+on:
+  workflow_dispatch:
+    inputs:
+      gpu_type:
+        description: 'RunPods GPU type id'
+        type: choice
+        default: 'NVIDIA GeForce RTX 4090'
+        options:
+          - 'NVIDIA GeForce RTX 4090'
+          - 'NVIDIA GeForce RTX 3090'
+      gpu_arch:
+        description: 'NVHPC -gpu arch (cc89=4090, cc86=3090)'
+        type: string
+        default: 'cc89'
+      image:
+        description: 'NVHPC container image'
+        type: string
+        default: 'nvcr.io/nvidia/nvhpc:24.5-devel-cuda_multi-ubuntu22.04'
+
+concurrency:
+  group: runpod-gpu
+  cancel-in-progress: false
+
+jobs:
+  gpu-test:
+    name: Build & test GPU wheel on RunPods
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The CPU job (python-cpu.yml) publishes the golden reference. Pull the
+      # latest successful one so the GPU-vs-CPU agreement test can run; if it
+      # is unavailable the GPU test falls back to finiteness/bounds checks.
+      - name: Fetch CPU golden reference (best effort)
+        uses: dawidd6/action-download-artifact@v6
+        continue-on-error: true
+        with:
+          workflow: python-cpu.yml
+          name: ice-adjust-cpu-reference
+          path: tests/data
+          if_no_artifact_found: warn
+
+      - name: Install runpodctl
+        run: |
+          wget -qO runpodctl https://github.com/runpod/runpodctl/releases/latest/download/runpodctl-linux-amd64
+          chmod +x runpodctl && sudo mv runpodctl /usr/local/bin/
+          runpodctl version
+
+      - name: Provision pod, build, test, teardown
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+          GPU_TYPE: ${{ inputs.gpu_type }}
+          GPU_ARCH: ${{ inputs.gpu_arch }}
+          IMAGE: ${{ inputs.image }}
+          SHA: ${{ github.sha }}
+          REPO: ${{ github.repository }}
+        run: bash ci/runpod_dispatch.sh

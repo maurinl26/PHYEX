@@ -1,0 +1,68 @@
+[build-system]
+requires = ["scikit-build-core>=0.10.0", "cython", "numpy>=2.0"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "phyex"
+version = "0.1.0"
+description = "Python bindings for the PHYEX atmospheric physics package (AROME)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+dependencies = [
+    "numpy>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov",
+]
+# GPU extras: CuPy supplies device pointers to the OpenACC bridge.
+# Install the wheel matching the target CUDA, e.g. cupy-cuda12x.
+gpu = [
+    "cupy-cuda12x",
+]
+
+[tool.scikit-build]
+minimum-version = "0.10.0"
+cmake.version = ">=3.15"
+cmake.build-type = "Release"
+build-dir = "build/{wheel_tag}"
+wheel.packages = ["phyex"]
+
+[tool.scikit-build.cmake.define]
+# GNU Fortran by default. For a GPU build override with nvfortran, e.g.
+#   pip install . -C cmake.define.CMAKE_Fortran_COMPILER=nvfortran \
+#                 -C cmake.define.PHYEX_ENABLE_GPU=ON
+CMAKE_Fortran_COMPILER = "gfortran"
+# Build from the vendored pyfortool-transformed tree so the wheel builds
+# without fxtran/pyfortool installed. Set OFF in CI that runs the transform.
+PHYEX_USE_TRANSFORMED_SOURCES = "ON"
+# CPU bindings are DOUBLE precision (the _phyex_wrapper.pyx host wrapper uses
+# float64 to match parkind_dp). The GPU build overrides to single precision
+# (float32) to match _phyex_wrapper_acc.pyx — see ci/runpod_gpu_test.sh.
+ENABLE_DOUBLE_PRECISION = "ON"
+ENABLE_SINGLE_PRECISION = "OFF"
+# Flip to ON (with an NVHPC toolchain) to build the OpenACC GPU wrapper.
+PHYEX_ENABLE_GPU = "OFF"
+
+[tool.scikit-build.sdist]
+include = [
+    "src/**/*.F90",
+    "src/**/*.h",
+    "cmake/**/*.cmake",
+    "cmake/**/*.in",
+    "cmake/bridge/*.F90",
+    "cmake/bridge/*.pyx",
+    "CMakeLists.txt",
+    "pyproject.toml",
+    "README.md",
+]
+exclude = [
+    "build",
+    "dist",
+    "*.egg-info",
+    ".git",
+    "__pycache__",
+]

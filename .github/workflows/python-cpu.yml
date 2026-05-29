@@ -1,0 +1,66 @@
+name: Python bindings (CPU)
+
+# Builds the CPU Cython wheel and runs the host-side smoke tests.
+# Uses the vendored pyfortool-transformed tree (PHYEX_USE_TRANSFORMED_SOURCES=ON),
+# so no fxtran/pyfortool toolchain is required on the runner.
+
+on:
+  push:
+    branches: [master, python-bindings-on-master]
+    paths:
+      - 'cmake/bridge/**'
+      - 'phyex_transformed/**'
+      - 'phyex/**'
+      - 'tests/**'
+      - 'CMakeLists.txt'
+      - 'pyproject.toml'
+      - '.github/workflows/python-cpu.yml'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-test:
+    name: Build CPU wheel & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gfortran cmake ninja-build
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Build & install the CPU wheel
+        run: |
+          python -m pip install --upgrade pip
+          # PHYEX_USE_TRANSFORMED_SOURCES + gfortran come from pyproject defaults.
+          python -m pip install . -v
+
+      - name: Sanity import
+        run: |
+          python -c "import phyex; assert hasattr(phyex,'ice_adjust'); print('CPU build OK, GPU build:', phyex.is_gpu_build())"
+
+      - name: Run CPU tests
+        # Run from a directory without the local ./phyex source package, so the
+        # *installed* extension is imported rather than the (uncompiled) source.
+        run: |
+          python -m pip install pytest
+          cd "$RUNNER_TEMP"
+          python -m pytest "$GITHUB_WORKSPACE/tests/test_cpu_ice_adjust.py" -v
+
+      - name: Generate CPU golden reference (artifact for the GPU job)
+        run: |
+          cd "$RUNNER_TEMP"
+          python "$GITHUB_WORKSPACE/tests/gen_reference.py"
+          test -f "$GITHUB_WORKSPACE/tests/data/ice_adjust_ref.npz"
+
+      - name: Upload CPU reference
+        uses: actions/upload-artifact@v4
+        with:
+          name: ice-adjust-cpu-reference
+          path: tests/data/ice_adjust_ref.npz
+          if-no-files-found: error
