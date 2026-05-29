@@ -157,50 +157,48 @@ every push:
    **“Build & test GPU wheel on RunPods”** to the required status checks.
 3. Add the `RUNPOD_API_KEY` repository secret.
 
-> The gate is only as strong as the test. Until config init is fixed (§4b),
-> the GPU test asserts finiteness/bounds (which zeros pass), so it gates "builds
-> + runs on GPU", not yet "physically correct". Commit a real golden reference
-> and assert agreement to make it a true correctness gate.
+> The CPU job now publishes a *meaningful* golden reference (a condensing
+> column, not zeros — §4b), and `tests/data/ice_adjust_ref.npz` is committed too,
+> so the GPU job's `test_gpu_matches_cpu_reference` asserts real GPU-vs-CPU
+> agreement at float32 tolerance. The gate therefore checks "builds + runs +
+> matches CPU physics on GPU" — a true correctness gate, pending its first run.
 
 ---
 
-## 4b. Known limitations / open items
-
-What is **done and tested** vs. what still needs work — stated plainly so nobody
-over-trusts the bindings:
+## 4b. Status — what's tested vs. what's open
 
 | Area | Status |
 |---|---|
 | CMake + scikit-build-core packaging | ✅ done |
 | Library build from vendored transformed tree (gfortran) | ✅ `libphyex_dp` links (1008+ objs) |
 | CPU wheel builds & imports (`ice_adjust`, `rain_ice`, `turb`, …) | ✅ done |
-| CPU `ice_adjust` runs, returns finite, bounded arrays | ✅ smoke test passes |
 | Full config init via `INI_PHYEX` (once per process) | ✅ runs; repeat-call realloc crash fixed |
-| CPU `ice_adjust` numerical correctness | ⚠️ **not validated** — still zero output, see below |
+| **CPU `ice_adjust` numerical correctness** | ✅ **validated** — condenses a supersaturated column |
 | `init_rain_ice` | ❌ **segfaults** — do not call yet |
 | GPU wrapper compiles to C; nogil bug fixed; JAX removed | ✅ done |
 | GPU build links / runs on a real GPU | ⏳ **untested** (no local NVHPC/GPU; run the RunPods job) |
+| Other routines (`rain_ice`, `turb`, `shallow_convection`) | ⏳ same `INI_PHYEX` init pattern to apply |
 
-**Progress made.** The bridge now calls **`INI_PHYEX`** (mirroring the offline
-`main_ice_adjust.F90`) via a once-per-process guard (`ensure_phyex_init`), so the
-full config — `CST`, `RAIN_ICE_PARAMN`, `NEBN`, `TURBN`, `PARAM_ICEN`,
-`TBUCONF` — is genuinely populated (the ICE3 constants print on first call
-confirms `INI_RAIN_ICE` runs), and the repeat-call "already allocated" crash is
-fixed by the guard.
+**`ICE_ADJUST` works.** Two things were needed together:
+1. **Full config init** — the bridge calls `INI_PHYEX` (mirroring the offline
+   `main_ice_adjust.F90`) via a once-per-process guard `ensure_phyex_init`,
+   populating `CST`/`RAIN_ICE_PARAMN`/`NEBN`/`TURBN`/`PARAM_ICEN`/`TBUCONF`.
+2. **The source-array convention** (the subtle one). ICE_ADJUST clamps
+   condensation to the available vapour *source*: `ZW1 = MIN(Pcond, PRVS)`. The
+   `*S` arrays (`rvs, rcs, ris, ths`) must therefore enter as **`R / timestep`**,
+   not zero — otherwise `MIN(positive, 0) = 0` and nothing condenses. With
+   `rvs = rv/dt` etc., a supersaturated column (`rv = 20 g/kg`) gives
+   `cldfr = 1`, `rcs` rising from 0, and `ths` warming (latent heat) — exactly
+   as physics requires. `tests/test_cpu_ice_adjust.py` asserts this;
+   `tests/gen_reference.py` writes the golden `tests/data/ice_adjust_ref.npz`.
 
-**What's still wrong.** Even with full config, `ICE_ADJUST` returns exactly zero
-`cldfr`/`rcs`/`ths` — for a subsaturated parcel, a strongly supersaturated one
-(`rv=50 g/kg`), *and* a parcel with pre-existing `rc=5 g/kg` in dry air that must
-evaporate. Config-init was necessary but not sufficient. Because the output is
-*exactly* zero (not just small), the adjustment loop body appears not to execute
-over these points — pointing now at the bridge's **`DIMPHYEX` loop bounds**
-(`D%NKTB/NKTE`, `D%NIJB/NIJE`, halo `JPVEXT` handling) or array layout, not at
-config. `init_rain_ice` still **segfaults** (separate init path, not yet ported).
+   The Cython wrapper passes `*S` through verbatim — **the caller owns the
+   convention**. (A future ergonomic wrapper could accept `R` and divide by `dt`
+   internally.)
 
-**Recommended next step** (needs an instrumented debug build, not blind edits):
-add a print of `T`, `rvsat` and the loop counters inside `ice_adjust.F90` to see
-whether the JIJ/JK loop iterates and what saturation it computes; reconcile the
-bridge's `D%NKTB=1 / NKTE=NKT` against PHYEX's usual `1+JPVEXT … NKT-JPVEXT`.
+**Still open.** `init_rain_ice` **segfaults** (separate init path, not ported to
+`INI_PHYEX` yet — `ice_adjust` does not need it). The other three routines carry
+the same partial-init pattern and should get the `ensure_phyex_init` treatment.
 
 **Library noise.** `INI_PHYEX`/`INI_RAIN_ICE` print microphysics constants to
 stdout on the first call; route `IULOUT` to a scratch unit before shipping.

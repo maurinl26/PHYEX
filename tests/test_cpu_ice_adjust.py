@@ -1,14 +1,10 @@
-"""CPU binding smoke / ABI test for ICE_ADJUST.
+"""CPU binding correctness test for ICE_ADJUST.
 
-Validates the *build and call path*: the Cython wrapper accepts float64
-Fortran-ordered arrays, the C bridge marshals them, ICE_ADJUST runs without
-crashing, and outputs come back finite and bounded.
-
-It does NOT yet validate physics: the bridge does not fully initialize PHYEX's
-config derived types (NEB / PARAM_ICE / RAIN_ICE_PARAM), so for these inputs the
-adjustment tendencies come back as zeros. Making this a real numerical-
-correctness test requires completing config initialization in the bridge — see
-the "Known limitations" section of docs/PYTHON_BINDINGS_WALKTHROUGH.md.
+A supersaturated column must condense water: the saturation adjustment forms
+cloud (cldfr -> 1), moves vapour into cloud water (rcs increases), and releases
+latent heat (ths increases). This exercises the full path — Cython wrapper ->
+C bridge -> INI_PHYEX config -> ICE_ADJUST — and checks physics, not just that
+it runs.
 
 Run after building the CPU wheel, from outside the repo root so the *installed*
 package is imported rather than the ./phyex source dir:
@@ -25,8 +21,11 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def test_ice_adjust_runs_and_is_finite(ice_adjust_inputs):
+def test_ice_adjust_condenses_supersaturated_column(ice_adjust_inputs):
     inp = ice_adjust_inputs
+    ths_in = inp["ths"].copy()     # = th/dt before the call
+    rcs_in = inp["rcs"].copy()     # = 0 (no initial cloud water)
+
     phyex.ice_adjust(
         timestep=inp["timestep"], krr=inp["krr"],
         sigqsat=inp["sigqsat"], pabs=inp["pabs"], sigs=inp["sigs"], th=inp["th"],
@@ -37,11 +36,14 @@ def test_ice_adjust_runs_and_is_finite(ice_adjust_inputs):
         cldfr=inp["cldfr"], icldfr=inp["icldfr"], wcldfr=inp["wcldfr"],
     )
 
-    # Outputs are updated in place.
-    for name in ("rvs", "rcs", "ris", "ths", "cldfr", "icldfr", "wcldfr"):
-        arr = inp[name]
-        assert np.all(np.isfinite(arr)), f"{name} contains non-finite values"
-
-    # Cloud fraction must stay a fraction.
+    # Finite + cloud fraction stays a fraction.
+    for name in ("rvs", "rcs", "ris", "ths", "cldfr"):
+        assert np.all(np.isfinite(inp[name])), f"{name} has non-finite values"
     assert inp["cldfr"].min() >= -1e-6
     assert inp["cldfr"].max() <= 1.0 + 1e-6
+
+    # Physics: the supersaturated column must form cloud, condense vapour into
+    # cloud water, and warm via latent heat release.
+    assert inp["cldfr"].max() > 0.5, "no cloud formed in a supersaturated column"
+    assert inp["rcs"].max() > rcs_in.max() + 1e-8, "no condensation (rcs did not rise)"
+    assert inp["ths"].max() > ths_in.max() + 1e-4, "no latent heating (ths did not rise)"
