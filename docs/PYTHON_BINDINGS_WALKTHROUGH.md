@@ -180,12 +180,21 @@ over-trusts the bindings:
 | GPU wrapper compiles to C; nogil bug fixed; JAX removed | ✅ done |
 | GPU build links / runs on a real GPU | ⏳ **untested** (no local NVHPC/GPU; run the RunPods job) |
 
-**Why correctness isn't proven yet.** The bridge initializes constants via
-`INI_CST` but does **not** fully populate the PHYEX configuration derived types
-(`NEBN`, `PARAM_ICEN`, `RAIN_ICE_PARAMN`, `CSTURB`, …). As a result
-`ice_adjust` runs on under-initialized config and returns **zeros** even for a
-supersaturated parcel, and `init_rain_ice` dereferences unset state and
-**segfaults**. The smoke test deliberately asserts only finiteness/bounds.
+**Why correctness isn't proven yet.** The bridge calls `INI_CST` and hand-sets a
+few `NEBN`/`PARAMI`/`BUCONF` fields, but leaves `ICEP` (`RAIN_ICE_PARAM_t`)
+entirely zero and most config fields at defaults. The observed effect: the
+`ICE_ADJUST` core is **inert regardless of input** — it returns exactly zero
+`cldfr`/`rcs`/`ths` not only for a subsaturated parcel but even when forced
+(supersaturated `rv=0.05`, or pre-existing `rc=5 g/kg` in dry air that *must*
+evaporate). So it is not a tuning issue — the adjustment loop never engages,
+pointing at incomplete config initialization. `init_rain_ice` dereferences unset
+state and **segfaults**. The smoke test therefore asserts only finiteness/bounds.
+
+**Recommended fix path** (needs an instrumented Fortran debug build, not blind
+edits): mirror the offline `src/offline/progs/main_ice_adjust.F90` testprog,
+which fills every `*_t` config struct (and `ICEP` via `INI_RAIN_ICE`) before the
+call. Port that initialization into `phyex_bridge.F90`, add a debug print of
+`T`/`rvsat` at one point to confirm the loop runs, then assert real condensation.
 
 **Next step to "well tested" physics:** complete config initialization in
 `phyex_bridge.F90` (fill the `*_t` config structures the way the offline
