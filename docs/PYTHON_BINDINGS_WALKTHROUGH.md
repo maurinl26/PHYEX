@@ -175,26 +175,35 @@ over-trusts the bindings:
 | Library build from vendored transformed tree (gfortran) | ✅ `libphyex_dp` links (1008+ objs) |
 | CPU wheel builds & imports (`ice_adjust`, `rain_ice`, `turb`, …) | ✅ done |
 | CPU `ice_adjust` runs, returns finite, bounded arrays | ✅ smoke test passes |
-| CPU `ice_adjust` numerical correctness | ⚠️ **not validated** — see below |
+| Full config init via `INI_PHYEX` (once per process) | ✅ runs; repeat-call realloc crash fixed |
+| CPU `ice_adjust` numerical correctness | ⚠️ **not validated** — still zero output, see below |
 | `init_rain_ice` | ❌ **segfaults** — do not call yet |
 | GPU wrapper compiles to C; nogil bug fixed; JAX removed | ✅ done |
 | GPU build links / runs on a real GPU | ⏳ **untested** (no local NVHPC/GPU; run the RunPods job) |
 
-**Why correctness isn't proven yet.** The bridge calls `INI_CST` and hand-sets a
-few `NEBN`/`PARAMI`/`BUCONF` fields, but leaves `ICEP` (`RAIN_ICE_PARAM_t`)
-entirely zero and most config fields at defaults. The observed effect: the
-`ICE_ADJUST` core is **inert regardless of input** — it returns exactly zero
-`cldfr`/`rcs`/`ths` not only for a subsaturated parcel but even when forced
-(supersaturated `rv=0.05`, or pre-existing `rc=5 g/kg` in dry air that *must*
-evaporate). So it is not a tuning issue — the adjustment loop never engages,
-pointing at incomplete config initialization. `init_rain_ice` dereferences unset
-state and **segfaults**. The smoke test therefore asserts only finiteness/bounds.
+**Progress made.** The bridge now calls **`INI_PHYEX`** (mirroring the offline
+`main_ice_adjust.F90`) via a once-per-process guard (`ensure_phyex_init`), so the
+full config — `CST`, `RAIN_ICE_PARAMN`, `NEBN`, `TURBN`, `PARAM_ICEN`,
+`TBUCONF` — is genuinely populated (the ICE3 constants print on first call
+confirms `INI_RAIN_ICE` runs), and the repeat-call "already allocated" crash is
+fixed by the guard.
 
-**Recommended fix path** (needs an instrumented Fortran debug build, not blind
-edits): mirror the offline `src/offline/progs/main_ice_adjust.F90` testprog,
-which fills every `*_t` config struct (and `ICEP` via `INI_RAIN_ICE`) before the
-call. Port that initialization into `phyex_bridge.F90`, add a debug print of
-`T`/`rvsat` at one point to confirm the loop runs, then assert real condensation.
+**What's still wrong.** Even with full config, `ICE_ADJUST` returns exactly zero
+`cldfr`/`rcs`/`ths` — for a subsaturated parcel, a strongly supersaturated one
+(`rv=50 g/kg`), *and* a parcel with pre-existing `rc=5 g/kg` in dry air that must
+evaporate. Config-init was necessary but not sufficient. Because the output is
+*exactly* zero (not just small), the adjustment loop body appears not to execute
+over these points — pointing now at the bridge's **`DIMPHYEX` loop bounds**
+(`D%NKTB/NKTE`, `D%NIJB/NIJE`, halo `JPVEXT` handling) or array layout, not at
+config. `init_rain_ice` still **segfaults** (separate init path, not yet ported).
+
+**Recommended next step** (needs an instrumented debug build, not blind edits):
+add a print of `T`, `rvsat` and the loop counters inside `ice_adjust.F90` to see
+whether the JIJ/JK loop iterates and what saturation it computes; reconcile the
+bridge's `D%NKTB=1 / NKTE=NKT` against PHYEX's usual `1+JPVEXT … NKT-JPVEXT`.
+
+**Library noise.** `INI_PHYEX`/`INI_RAIN_ICE` print microphysics constants to
+stdout on the first call; route `IULOUT` to a scratch unit before shipping.
 
 **Next step to "well tested" physics:** complete config initialization in
 `phyex_bridge.F90` (fill the `*_t` config structures the way the offline

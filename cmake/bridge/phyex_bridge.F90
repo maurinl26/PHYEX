@@ -24,6 +24,8 @@ MODULE phyex_bridge
     USE MODD_ELEC_DESCR, ONLY : ELEC_DESCR_t
     USE MODE_INI_CST, ONLY : INI_CST
     USE MODE_INI_RAIN_ICE, ONLY : INI_RAIN_ICE
+    USE MODI_INI_PHYEX, ONLY : INI_PHYEX
+    USE MODD_PHYEX, ONLY : PHYEX_t
 
     IMPLICIT NONE
 
@@ -34,7 +36,39 @@ MODULE phyex_bridge
     INTEGER, PARAMETER :: WP = C_DOUBLE
 #endif
 
+    ! PHYEX configuration is initialized once per process: INI_PHYEX allocates
+    ! module-global state (e.g. RAIN_ICE_DESCR) that must not be re-allocated.
+    TYPE(PHYEX_t), SAVE :: G_PHYEX
+    LOGICAL, SAVE       :: G_PHYEX_INIT = .FALSE.
+
 CONTAINS
+
+    ! Initialize the full PHYEX configuration exactly once (idempotent).
+    SUBROUTINE ensure_phyex_init(timestep)
+        REAL(WP), INTENT(IN) :: timestep
+        TYPE(TFILEDATA) :: TPFILE
+        INTEGER :: IULOUT
+        REAL :: ZDZMIN
+        IF (G_PHYEX_INIT) RETURN
+        IULOUT = 6
+        ZDZMIN = 20.0
+        TPFILE%NLU = 0
+        CALL INI_PHYEX('AROME ', TPFILE, .TRUE., IULOUT, 0, 1,            &
+            REAL(timestep), ZDZMIN, 'ICE3', 'NONE', 'TKEL',              &
+            LDDEFAULTVAL=.TRUE., LDREADNAM=.FALSE., LDCHECK=.FALSE.,      &
+            KPRINT=0, LDINIT=.FALSE., PHYEX_OUT=G_PHYEX)
+        G_PHYEX%MISC%LMFCONV      = .FALSE.
+        G_PHYEX%MISC%OCOMPUTE_SRC = .TRUE.
+        G_PHYEX%PARAM_ICEN%LWARM  = .TRUE.
+        G_PHYEX%NEBN%LSUBG_COND   = .FALSE.   ! all-or-nothing adjustment
+        G_PHYEX%NEBN%LSIGMAS      = .TRUE.
+        G_PHYEX%NEBN%CFRAC_ICE_ADJUST = 'S'
+        CALL INI_PHYEX('AROME ', TPFILE, .TRUE., IULOUT, 0, 1,           &
+            REAL(timestep), ZDZMIN, 'ICE3', 'NONE', 'TKEL',             &
+            LDDEFAULTVAL=.FALSE., LDREADNAM=.FALSE., LDCHECK=.FALSE.,    &
+            KPRINT=0, LDINIT=.TRUE., PHYEX_IN=G_PHYEX, PHYEX_OUT=G_PHYEX)
+        G_PHYEX_INIT = .TRUE.
+    END SUBROUTINE ensure_phyex_init
 
     ! C-callable wrapper for ICE_ADJUST
     SUBROUTINE c_ice_adjust_wrap(                                          &
@@ -90,11 +124,6 @@ CONTAINS
         
         ! Local variables for PHYEX structures
         TYPE(DIMPHYEX_t) :: D
-        TYPE(RAIN_ICE_PARAM_t) :: ICEP
-        TYPE(NEB_t) :: NEBN
-        TYPE(TURB_t) :: TURBN
-        TYPE(PARAM_ICE_t) :: PARAMI
-        TYPE(TBUDGETCONF_t) :: BUCONF
         TYPE(TBUDGETDATA_PTR), DIMENSION(0) :: TBUDGETS
         
         ! Additional required arrays (using WP)
@@ -156,25 +185,8 @@ CONTAINS
         D%NLESMASK = 0
         D%NLES_TIMES = 0
         
-        ! Initialize physical constants (uses global CST module)
-        CALL INI_CST()
-        
-        ! Initialize NEBN (nebulosity/cloud parameters) - AROME defaults
-        NEBN%LSUBG_COND = .FALSE.     ! No subgrid condensation
-        NEBN%LSIGMAS = .TRUE.         ! Use sigma_s
-        NEBN%CFRAC_ICE_ADJUST = 'S'   ! Standard
-        NEBN%CCONDENS = 'CB02'        ! Condensation scheme
-        NEBN%CLAMBDA3 = 'CB'          ! Lambda3 formulation
-        
-        ! Initialize PARAMI (ice parameters)
-        PARAMI%CSUBG_MF_PDF = 'NONE'  ! No mass flux PDF
-        PARAMI%LOCND2 = .FALSE.       ! OCND2 option
-        
-        ! Initialize budget configuration (disable budgets)
-        BUCONF%LBUDGET_TH = .FALSE.
-        BUCONF%LBUDGET_RV = .FALSE.
-        BUCONF%LBUDGET_RC = .FALSE.
-        BUCONF%LBUDGET_RI = .FALSE.
+        ! Fully initialize the PHYEX configuration once per process.
+        CALL ensure_phyex_init(timestep)
         
         ! Allocate and initialize additional required arrays
         ALLOCATE(PRHODJ(nlon, nlev))
@@ -202,7 +214,7 @@ CONTAINS
         PSSIU = 0.0_WP
         PIFR = 0.0_WP
         PSRCS = 0.0_WP
-        OCOMPUTE_SRC = .FALSE.
+        OCOMPUTE_SRC = .TRUE.
 
         ! OpenACC data region for GPU execution
         !$acc data create(PRHODJ, PZZ, PMFCONV, PWEIGHT_MF_CLOUD, PSSIO, PSSIU, PIFR, PSRCS) &
@@ -212,9 +224,10 @@ CONTAINS
         !$acc&     deviceptr(f_rvs, f_rcs, f_ris, f_ths) &
         !$acc&     deviceptr(f_cldfr, f_icldfr, f_wcldfr)
 
-        ! Call the actual ICE_ADJUST routine (using global CST module)
-        CALL ICE_ADJUST(                                                   &
-            D, CST, ICEP, NEBN, TURBN, PARAMI, BUCONF, krr,                &
+        ! Call the actual ICE_ADJUST routine with the INI_PHYEX-populated config
+        CALL ICE_ADJUST(                                                       &
+            D, G_PHYEX%CST, G_PHYEX%RAIN_ICE_PARAMN, G_PHYEX%NEBN, G_PHYEX%TURBN, &
+            G_PHYEX%PARAM_ICEN, G_PHYEX%MISC%TBUCONF, krr,                     &
             'BRID',                                                        &
             timestep, f_sigqsat,                                           &
             PRHODJ, f_exn_ref, f_rho_dry_ref, f_sigs, LMFCONV, PMFCONV,   &
