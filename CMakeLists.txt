@@ -20,6 +20,10 @@ ecbuild_add_option(FEATURE PHYEX_BUILD_PROGS
                    DESCRIPTION "Build PHYEX program executables"
                    DEFAULT OFF)
 
+ecbuild_add_option(FEATURE PHYEX_BUILD_ORACLES
+                   DESCRIPTION "Build standalone golden-reference oracle drivers (tests/oracle)"
+                   DEFAULT OFF)
+
 if(HAVE_DOUBLE_PRECISION)
   list(APPEND precision_list dp) 
 endif()
@@ -190,6 +194,29 @@ foreach(PRECISION ${precision_list})
 
       # Compilation option to use for unqualified REALs
       target_compile_options(${NAME}_${PRECISION} PUBLIC
+        $<$<COMPILE_LANGUAGE:Fortran>:${PHYEX_COMPILE_OPTIONS_REAL}>)
+    endforeach()
+  endif()
+
+  #---------------
+  #  Golden-reference oracles (independent drivers used to validate the bindings)
+  #---------------
+  if(HAVE_PHYEX_BUILD_ORACLES)
+    file(GLOB ORACLE_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/tests/oracle/oracle_*.F90)
+    foreach(OS ${ORACLE_SOURCES})
+      get_filename_component(ONAME ${OS} NAME_WLE)
+      ecbuild_add_executable(
+        TARGET ${ONAME}_${PRECISION}
+        SOURCES ${OS}
+        OBJECTS phyex_${PRECISION}
+        INCLUDES ${CMAKE_CURRENT_BINARY_DIR}/modules_${PRECISION}
+        LIBS
+          fiat
+          mpi_serial
+          parkind_${PRECISION}
+        OUTPUT_NAME ${ONAME}_${PRECISION}.exe
+      )
+      target_compile_options(${ONAME}_${PRECISION} PUBLIC
         $<$<COMPILE_LANGUAGE:Fortran>:${PHYEX_COMPILE_OPTIONS_REAL}>)
     endforeach()
   endif()
