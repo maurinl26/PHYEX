@@ -14,6 +14,14 @@ cimport numpy as np
 ctypedef np.float64_t DTYPE_t
 
 # External C Declaration matching phyex_bridge.F90
+#
+# ABI CONTRACT: every signature below must match its BIND(C) counterpart in
+# cmake/bridge/phyex_bridge.F90 *exactly* — same argument count, order and type.
+# There is no compile-time check across the Fortran/C boundary, so any drift
+# (e.g. an extra TYPE(C_PTR) the Fortran reads but Python never passes) is not a
+# build error: it silently reads uninitialised stack and segfaults at call time.
+# When you change a c_* wrapper in the .F90, change it here and in the matching
+# def below in the same commit, and keep a smoke test that actually calls it.
 cdef extern:
     void c_shallow_convection(
         int nlon,
@@ -557,6 +565,21 @@ def shallow_convection(
     # Convert boolean to int for C
     cdef int c_osettadj = 1 if osettadj else 0
     cdef int c_och1conv = 1 if och1conv else 0
+
+    # Validate scalar parameters. These guard against arguments that would make
+    # the Fortran read out of bounds rather than fail cleanly: kch1 < 1 leaves
+    # the tracer arrays with a zero last dimension, so &pch1[0,0,0] below would
+    # index past the end. kbdia/ktdia index the vertical loop bounds in PHYEX.
+    if nlon < 1 or nlev < 1:
+        raise ValueError("nlon and nlev must be >= 1 (got {}, {})".format(nlon, nlev))
+    if kch1 < 1:
+        raise ValueError(
+            "kch1 must be >= 1 (tracer arrays need a non-zero last dimension); "
+            "set kch1=1 with och1conv=False if you have no chemical species")
+    if kbdia < 1:
+        raise ValueError("kbdia must be >= 1 (got {})".format(kbdia))
+    if ktdia < 1 or ktdia > nlev:
+        raise ValueError("ktdia must be in [1, nlev]={} (got {})".format(nlev, ktdia))
 
     # Validate 1D array shapes
     if ptkecls.shape[0] != nlon:

@@ -591,17 +591,21 @@ CONTAINS
         CVP_SHAL%XBW = 0.0_WP            ! WLCL parameter B
         CVP_SHAL%LLSMOOTH = .TRUE.            ! Smoothing flag
 
-        ! Initialize physical constants
-        CALL INI_CST()
+        ! Initialize the shared PHYEX config once per process so the physical
+        ! constants come from INI_PHYEX (G_PHYEX%CST), consistent with the other
+        ! routines. The Kain-Fritsch CONVPAR_SHAL/CONVPAR/NSV structures are NOT
+        ! part of PHYEX_t, so they stay hand-rolled above. ptadjs is the natural
+        ! timescale argument here (CST init is timestep-independent).
+        CALL ensure_phyex_init(ptadjs)
 
         ! OpenACC data region for GPU execution
         !$acc data deviceptr(f_ppabst, f_pzz, f_ptkecls, f_ptt, f_prvt, f_prct, f_prit, f_pwt) &
         !$acc&     deviceptr(f_ptten, f_prvten, f_prcten, f_priten, f_pumf) &
         !$acc&     deviceptr(f_kcltop, f_kclbas, f_pch1, f_pch1ten)
 
-        ! Call the actual SHALLOW_CONVECTION routine
+        ! Call the actual SHALLOW_CONVECTION routine with the shared constants
         CALL SHALLOW_CONVECTION(                                               &
-            CVP_SHAL, CST, D, NSV, CONVPAR, kbdia, ktdia,                      &
+            CVP_SHAL, G_PHYEX%CST, D, NSV, CONVPAR, kbdia, ktdia,              &
             kice, LOSETTADJ, ptadjs, f_ppabst, f_pzz,                          &
             f_ptkecls, f_ptt, f_prvt, f_prct, f_prit, f_pwt,                   &
             f_ptten, f_prvten, f_prcten, f_priten,                             &

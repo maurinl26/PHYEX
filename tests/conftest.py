@@ -128,3 +128,51 @@ def rain_ice_inputs():
         "inprg": _f32(n1, 0.0),
         "indep": _f32(n1, 0.0),
     }
+
+
+@pytest.fixture
+def shallow_convection_inputs():
+    """A dict of arrays for a SHALLOW_CONVECTION (Kain-Fritsch) call.
+
+    A warm, moist, conditionally-unstable column. Whether the scheme actually
+    triggers is highly sounding-dependent, so the smoke test only relies on the
+    call running and returning finite, in-range results — not on convection
+    firing. Note kcltop/kclbas are int32 and pch1/pch1ten are 3D (..., kch1);
+    kch1=1 with och1conv=False is the "no chemistry" setup.
+    """
+    nlon, nlev = NLON, NLEV
+
+    def _col(profile):
+        a = np.empty((nlon, nlev), dtype=np.float64, order="F")
+        a[:] = profile
+        return a
+
+    z = np.arange(nlev, dtype=np.float64) * 150.0
+    pabs = 1.0e5 * np.exp(-z / 8000.0)
+    temp = 301.0 - 9.0e-3 * z                          # ~9 K/km (unstable)
+    rv = np.maximum(0.018 - 1.2e-6 * z, 5.0e-4)        # moist below
+
+    return {
+        "kice": 1, "kbdia": 1, "ktdia": 1,
+        "osettadj": False, "ptadjs": 3600.0,
+        "och1conv": False, "kch1": 1,
+        "ptkecls": _f32((nlon,), 0.5),
+        "ppabst": _col(pabs),
+        "pzz": _col(z),
+        "ptt": _col(temp),
+        "prvt": _col(rv),
+        "prct": _f32((nlon, nlev), 0.0),
+        "prit": _f32((nlon, nlev), 0.0),
+        "pwt": _f32((nlon, nlev), 0.2),
+        # in/out tendencies
+        "ptten": _f32((nlon, nlev), 0.0),
+        "prvten": _f32((nlon, nlev), 0.0),
+        "prcten": _f32((nlon, nlev), 0.0),
+        "priten": _f32((nlon, nlev), 0.0),
+        "kcltop": np.zeros(nlon, dtype=np.int32, order="F"),
+        "kclbas": np.zeros(nlon, dtype=np.int32, order="F"),
+        "pumf": _f32((nlon, nlev), 0.0),
+        # chemical tracers (unused: och1conv=False, kch1=1)
+        "pch1": np.zeros((nlon, nlev, 1), dtype=np.float64, order="F"),
+        "pch1ten": np.zeros((nlon, nlev, 1), dtype=np.float64, order="F"),
+    }
