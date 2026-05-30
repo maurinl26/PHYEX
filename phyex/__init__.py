@@ -15,7 +15,25 @@ installed build provides.
 
 __version__ = "0.1.0"
 
-__all__ = ["__version__"]
+# Typed scheme selectors (avoid PHYEX's 4-char magic strings at the boundary).
+from .enums import (  # noqa: E402
+    MicroScheme,
+    ShallowConvScheme,
+    TurbScheme,
+    normalize_micro,
+    normalize_sconv,
+    normalize_turb,
+)
+
+__all__ = [
+    "__version__",
+    "MicroScheme",
+    "ShallowConvScheme",
+    "TurbScheme",
+    "normalize_micro",
+    "normalize_sconv",
+    "normalize_turb",
+]
 
 try:
     from . import _phyex_wrapper as _w

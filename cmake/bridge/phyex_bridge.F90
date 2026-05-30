@@ -1,3 +1,72 @@
+! Typed scheme selectors for the PHYEX bridge.
+!
+! PHYEX dispatches its schemes on 4-character string codes (CMICRO='ICE3',
+! CSCONV='NONE', CTURB='TKEL', ...). Those magic strings are error-prone: a typo
+! is not a compile error, it silently selects the wrong (or no) scheme deep in
+! the Fortran. We keep the legacy strings as the wire format INI_PHYEX expects,
+! but everything *we* write refers to schemes by these named integer constants
+! and converts to the string in exactly one place (the *_name functions below).
+!
+! ABI/SYNC CONTRACT: the integer ids here mirror phyex/enums.py on the Python
+! side. If you add or renumber a scheme, change it in both places in the same
+! commit. The *_name mapping is the single source of truth for the legacy codes.
+MODULE phyex_bridge_enums
+    USE ISO_C_BINDING, ONLY : C_INT
+    IMPLICIT NONE
+
+    ! Microphysics / cloud scheme (INI_PHYEX CMICRO)
+    INTEGER(C_INT), PARAMETER :: PHYEX_MICRO_NONE = 0
+    INTEGER(C_INT), PARAMETER :: PHYEX_MICRO_ICE3 = 1
+    INTEGER(C_INT), PARAMETER :: PHYEX_MICRO_ICE4 = 2
+    INTEGER(C_INT), PARAMETER :: PHYEX_MICRO_LIMA = 3
+
+    ! Shallow convection scheme (INI_PHYEX CSCONV)
+    INTEGER(C_INT), PARAMETER :: PHYEX_SCONV_NONE = 0
+    INTEGER(C_INT), PARAMETER :: PHYEX_SCONV_EDKF = 1
+
+    ! Turbulence scheme (INI_PHYEX CTURB)
+    INTEGER(C_INT), PARAMETER :: PHYEX_TURB_NONE = 0
+    INTEGER(C_INT), PARAMETER :: PHYEX_TURB_TKEL = 1
+
+CONTAINS
+
+    ! Map a microphysics id to the legacy CMICRO code. '????' for an unknown id
+    ! makes INI_PHYEX reject it loudly rather than running a wrong scheme.
+    PURE FUNCTION phyex_micro_name(id) RESULT(name)
+        INTEGER(C_INT), INTENT(IN) :: id
+        CHARACTER(LEN=4) :: name
+        SELECT CASE (id)
+        CASE (PHYEX_MICRO_NONE); name = 'NONE'
+        CASE (PHYEX_MICRO_ICE3); name = 'ICE3'
+        CASE (PHYEX_MICRO_ICE4); name = 'ICE4'
+        CASE (PHYEX_MICRO_LIMA); name = 'LIMA'
+        CASE DEFAULT;            name = '????'
+        END SELECT
+    END FUNCTION phyex_micro_name
+
+    PURE FUNCTION phyex_sconv_name(id) RESULT(name)
+        INTEGER(C_INT), INTENT(IN) :: id
+        CHARACTER(LEN=4) :: name
+        SELECT CASE (id)
+        CASE (PHYEX_SCONV_NONE); name = 'NONE'
+        CASE (PHYEX_SCONV_EDKF); name = 'EDKF'
+        CASE DEFAULT;            name = '????'
+        END SELECT
+    END FUNCTION phyex_sconv_name
+
+    PURE FUNCTION phyex_turb_name(id) RESULT(name)
+        INTEGER(C_INT), INTENT(IN) :: id
+        CHARACTER(LEN=4) :: name
+        SELECT CASE (id)
+        CASE (PHYEX_TURB_NONE); name = 'NONE'
+        CASE (PHYEX_TURB_TKEL); name = 'TKEL'
+        CASE DEFAULT;           name = '????'
+        END SELECT
+    END FUNCTION phyex_turb_name
+
+END MODULE phyex_bridge_enums
+
+
 MODULE phyex_bridge
     USE ISO_C_BINDING
     ! Import the original routines and required modules
@@ -25,6 +94,8 @@ MODULE phyex_bridge
     USE MODE_INI_CST, ONLY : INI_CST
     USE MODI_INI_PHYEX, ONLY : INI_PHYEX
     USE MODD_PHYEX, ONLY : PHYEX_t
+    USE phyex_bridge_enums, ONLY : phyex_micro_name, phyex_sconv_name, phyex_turb_name, &
+                                   PHYEX_MICRO_ICE3, PHYEX_SCONV_NONE, PHYEX_TURB_TKEL
 
     IMPLICIT NONE
 
@@ -54,8 +125,13 @@ CONTAINS
         OPEN(NEWUNIT=IULOUT, STATUS='SCRATCH')
         ZDZMIN = 20.0
         TPFILE%NLU = 0
+        ! Scheme selectors go through the typed enum -> legacy-string mapping
+        ! (single source of truth) instead of inline magic strings.
         CALL INI_PHYEX('AROME ', TPFILE, .TRUE., IULOUT, 0, 1,            &
-            REAL(timestep), ZDZMIN, 'ICE3', 'NONE', 'TKEL',              &
+            REAL(timestep), ZDZMIN,                                       &
+            phyex_micro_name(PHYEX_MICRO_ICE3),                          &
+            phyex_sconv_name(PHYEX_SCONV_NONE),                          &
+            phyex_turb_name(PHYEX_TURB_TKEL),                            &
             LDDEFAULTVAL=.TRUE., LDREADNAM=.FALSE., LDCHECK=.FALSE.,      &
             KPRINT=0, LDINIT=.FALSE., PHYEX_OUT=G_PHYEX)
         G_PHYEX%MISC%LMFCONV      = .FALSE.
@@ -65,7 +141,10 @@ CONTAINS
         G_PHYEX%NEBN%LSIGMAS      = .TRUE.
         G_PHYEX%NEBN%CFRAC_ICE_ADJUST = 'S'
         CALL INI_PHYEX('AROME ', TPFILE, .TRUE., IULOUT, 0, 1,           &
-            REAL(timestep), ZDZMIN, 'ICE3', 'NONE', 'TKEL',             &
+            REAL(timestep), ZDZMIN,                                      &
+            phyex_micro_name(PHYEX_MICRO_ICE3),                         &
+            phyex_sconv_name(PHYEX_SCONV_NONE),                         &
+            phyex_turb_name(PHYEX_TURB_TKEL),                           &
             LDDEFAULTVAL=.FALSE., LDREADNAM=.FALSE., LDCHECK=.FALSE.,    &
             KPRINT=0, LDINIT=.TRUE., PHYEX_IN=G_PHYEX, PHYEX_OUT=G_PHYEX)
         G_PHYEX_INIT = .TRUE.
