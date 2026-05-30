@@ -527,7 +527,7 @@ def shallow_convection(
     int kbdia,
     int ktdia,
     bint osettadj,
-    float ptadjs,
+    double ptadjs,
     bint och1conv,
     int kch1,
     # 1D input arrays (Fortran-contiguous)
