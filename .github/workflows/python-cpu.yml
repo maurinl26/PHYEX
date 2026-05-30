@@ -31,6 +31,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gfortran cmake ninja-build
 
+      - name: Install ecbuild
+        # ecbuild is ECMWF's CMake-only build system (not on PyPI); the build
+        # needs find_package(ecbuild 3.11). Install it and expose it on
+        # CMAKE_PREFIX_PATH so both the wheel and the oracle builds find it.
+        run: |
+          git clone --depth 1 --branch 3.11.0 https://github.com/ecmwf/ecbuild.git "$RUNNER_TEMP/ecbuild-src"
+          cmake -S "$RUNNER_TEMP/ecbuild-src" -B "$RUNNER_TEMP/ecbuild-build"
+          cmake --install "$RUNNER_TEMP/ecbuild-build" --prefix "$HOME/.local"
+          echo "CMAKE_PREFIX_PATH=$HOME/.local${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}" >> "$GITHUB_ENV"
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
