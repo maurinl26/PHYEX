@@ -131,6 +131,61 @@ def rain_ice_inputs():
 
 
 @pytest.fixture
+def turb_inputs():
+    """A dict of float64 Fortran-ordered arrays for a TURB call.
+
+    Vertical convention (operational path): level 1 = model top, level nlev =
+    surface (NKL=-1). A stably-stratified, sheared column with a positive
+    surface heat flux, so the turbulence scheme has gradients to mix. TURB *adds*
+    its tendencies to the source arrays (prus, prthls, prtkes, ...).
+    """
+    nlon, nlev = NLON, NLEV
+
+    def _col(profile):
+        a = np.empty((nlon, nlev), dtype=np.float64, order="F")
+        a[:] = profile
+        return a
+
+    k = np.arange(nlev, dtype=np.float64)
+    z = (nlev - 1.0 - k) * 150.0                # height: high at top (k=0), 0 at surface
+    pabs = 1.0e5 * np.exp(-z / 8000.0)
+    temp = 288.0 - 6.5e-3 * z                   # warmer at surface
+    exner = (pabs / 1.0e5) ** 0.2857
+    theta = temp / exner                        # increases upward (stable)
+    rv = np.maximum(0.012 - 1.0e-6 * z, 1.0e-4)
+
+    prt = np.zeros((nlon, nlev, 6), dtype=np.float64, order="F")
+    prt[:, :, 0] = rv
+
+    return {
+        "ptstep": 50.0,
+        "krr": 6,
+        "pdxx": _f32((nlon, nlev), 250.0),
+        "pdyy": _f32((nlon, nlev), 250.0),
+        "pdzz": _f32((nlon, nlev), 150.0),
+        "pzz": _col(z),
+        "prhodj": _col(pabs / (287.0 * temp)),
+        "pthvref": _col(theta),
+        "psfth": _f32((nlon,), 0.20),           # K m/s, unstable surface forcing
+        "psfrv": _f32((nlon,), 1.0e-4),
+        "ppabst": _col(pabs),
+        "put": _col(5.0 + 0.002 * z),           # sheared zonal wind
+        "pvt": _f32((nlon, nlev), 0.0),
+        "pwt": _f32((nlon, nlev), 0.0),
+        "ptket": _f32((nlon, nlev), 0.5),
+        "pthlt": _col(theta),
+        "prt": prt,
+        # source terms (modified in place)
+        "prus": _f32((nlon, nlev), 0.0),
+        "prvs": _f32((nlon, nlev), 0.0),
+        "prws": _f32((nlon, nlev), 0.0),
+        "prthls": _f32((nlon, nlev), 0.0),
+        "prrs": np.zeros((nlon, nlev, 6), dtype=np.float64, order="F"),
+        "prtkes": _f32((nlon, nlev), 0.0),
+    }
+
+
+@pytest.fixture
 def shallow_convection_inputs():
     """A dict of arrays for a SHALLOW_CONVECTION (Kain-Fritsch) call.
 

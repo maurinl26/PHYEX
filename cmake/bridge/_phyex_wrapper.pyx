@@ -807,6 +807,15 @@ def turb(
     cdef int nlon = pdxx.shape[0]
     cdef int nlev = pdxx.shape[1]
 
+    # Vertical convention: level 1 = model top, level nlev = surface (NKL=-1).
+    # TURB does vertical-stencil mixing and the bridge adds a 2-level halo
+    # internally, so at least 2 interior levels are required.
+    if nlon < 1 or nlev < 2:
+        raise ValueError(
+            "turb requires nlon >= 1 and nlev >= 2 (got nlon={}, nlev={}); "
+            "arrays are (nlon, nlev) with level 1 = model top, level nlev = "
+            "surface".format(nlon, nlev))
+
     # Validate 2D array shapes
     cdef list arrays_2d = [
         ('pdxx', pdxx), ('pdyy', pdyy), ('pdzz', pdzz), ('pzz', pzz),

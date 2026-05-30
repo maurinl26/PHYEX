@@ -725,7 +725,15 @@ CONTAINS
 
     END SUBROUTINE c_shallow_convection_wrap
 
-    ! C-callable wrapper for TURB
+    ! C-callable wrapper for TURB (operational path, mirrors src/offline main_turb).
+    !
+    ! Python passes (nlon, nlev) fields with level 1 = model top and level nlev =
+    ! surface (matches NKL=-1). TURB needs a 2-level vertical halo, so we work
+    ! internally on (nlon, nlev+2) arrays: Python levels map to interior levels
+    ! 2..nlev+1, with halo at level 1 (above top) and nlev+2 (below surface).
+    ! Config comes from INI_PHYEX (G_PHYEX) so CSTURB/TURBN/NEBN are valid; the
+    ! flags and the OUT-array shapes are kept consistent with the schemes'
+    ! MERGE(D%NKT,0,<flag>) shape contracts (OCOMPUTE_SRC, OCLOUDMODIFLM, OFLYER).
     SUBROUTINE c_turb_wrap(                                                    &
         nlon, nlev, krr, ptstep,                                               &
         ptr_pdxx, ptr_pdyy, ptr_pdzz, ptr_pzz,                                 &
@@ -735,31 +743,20 @@ CONTAINS
         ptr_prus, ptr_prvs, ptr_prws, ptr_prthls, ptr_prrs, ptr_prtkes        &
     ) BIND(C, name="c_turb")
 
-        ! C-compatible arguments
         INTEGER(C_INT), VALUE, INTENT(IN) :: nlon, nlev, krr
         REAL(WP), VALUE, INTENT(IN) :: ptstep
 
-        ! C pointers for 2D input arrays
         TYPE(C_PTR), VALUE, INTENT(IN) :: ptr_pdxx, ptr_pdyy, ptr_pdzz
         TYPE(C_PTR), VALUE, INTENT(IN) :: ptr_pzz, ptr_prhodj, ptr_pthvref
         TYPE(C_PTR), VALUE, INTENT(IN) :: ptr_ppabst
         TYPE(C_PTR), VALUE, INTENT(IN) :: ptr_put, ptr_pvt, ptr_pwt, ptr_ptket
         TYPE(C_PTR), VALUE, INTENT(IN) :: ptr_pthlt
-
-        ! C pointers for 1D input arrays
         TYPE(C_PTR), VALUE, INTENT(IN) :: ptr_psfth, ptr_psfrv
-
-        ! C pointers for 3D input arrays
         TYPE(C_PTR), VALUE, INTENT(IN) :: ptr_prt
-
-        ! C pointers for 2D input/output arrays
         TYPE(C_PTR), VALUE, INTENT(IN) :: ptr_prus, ptr_prvs, ptr_prws
         TYPE(C_PTR), VALUE, INTENT(IN) :: ptr_prthls, ptr_prtkes
-
-        ! C pointers for 3D input/output arrays
         TYPE(C_PTR), VALUE, INTENT(IN) :: ptr_prrs
 
-        ! Fortran pointers to map C data
         REAL(KIND=WP), POINTER, DIMENSION(:,:) :: f_pdxx, f_pdyy, f_pdzz
         REAL(KIND=WP), POINTER, DIMENSION(:,:) :: f_pzz, f_prhodj, f_pthvref
         REAL(KIND=WP), POINTER, DIMENSION(:,:) :: f_ppabst
@@ -771,39 +768,41 @@ CONTAINS
         REAL(KIND=WP), POINTER, DIMENSION(:,:) :: f_prthls, f_prtkes
         REAL(KIND=WP), POINTER, DIMENSION(:,:,:) :: f_prrs
 
-        ! Local variables for PHYEX structures
         TYPE(DIMPHYEX_t) :: D
-        TYPE(TURB_t) :: TURBN
-        TYPE(TLES_t) :: TLES
-        TYPE(TBUDGETCONF_t) :: BUCONF
+        TYPE(TURB_t)     :: TURBN
+        TYPE(NEB_t)      :: NEBN
+        TYPE(TLES_t)     :: TLES
+        TYPE(TFILEDATA)  :: TPFILE
         TYPE(TBUDGETDATA_PTR), DIMENSION(0) :: TBUDGETS
-        TYPE(NEB_t) :: NEBN
-        TYPE(TFILEDATA) :: TPFILE
 
-        ! Additional required arrays
-        REAL(KIND=WP), ALLOCATABLE, DIMENSION(:,:) :: PDXX_HALO, PDYY_HALO, PDZZ_HALO
-        REAL(KIND=WP), ALLOCATABLE, DIMENSION(:,:) :: PDZX, PDZY, PZS_1D
-        REAL(KIND=WP), ALLOCATABLE, DIMENSION(:) :: PDIRCOSXW, PDIRCOSYW, PDIRCOSZW
-        REAL(KIND=WP), ALLOCATABLE, DIMENSION(:) :: PCOSSLOPE, PSINSLOPE, PZS
-        REAL(KIND=WP), ALLOCATABLE, DIMENSION(:,:) :: PLENGTHM, PLENGTHH, MFMOIST
-        REAL(KIND=WP), ALLOCATABLE, DIMENSION(:,:) :: PBL_DEPTH_2D, PSBL_DEPTH_2D
-        REAL(KIND=WP), ALLOCATABLE, DIMENSION(:) :: PBL_DEPTH, PSBL_DEPTH
-        REAL(KIND=WP), ALLOCATABLE, DIMENSION(:,:) :: PSIGS
-        REAL(KIND=WP), ALLOCATABLE, DIMENSION(:,:) :: PFLXZTHVMF, PFLXZUMF, PFLXZVMF
-        REAL(KIND=WP), ALLOCATABLE, DIMENSION(:,:) :: PTP, PDP, PTDIFF, PTDISS
-        REAL(KIND=WP), ALLOCATABLE, DIMENSION(:,:) :: PSFSV, PSRCT
-        REAL(KIND=WP), ALLOCATABLE, DIMENSION(:,:,:) :: PSVT, PRSVS
-        REAL(KIND=WP), ALLOCATABLE, DIMENSION(:,:) :: PHGRADLEO, PHGRADGOG
+        INTEGER :: nk
+        ! Halo'd internal fields (nlon, nlev+2)
+        REAL(KIND=WP), ALLOCATABLE, DIMENSION(:,:) :: zdxx, zdyy, zdzz, zzz, zdzx, zdzy
+        REAL(KIND=WP), ALLOCATABLE, DIMENSION(:,:) :: zrhodj, zthvref, zpabst
+        REAL(KIND=WP), ALLOCATABLE, DIMENSION(:,:) :: zut, zvt, zwt, ztket, zthlt
+        REAL(KIND=WP), ALLOCATABLE, DIMENSION(:,:) :: zlengthm, zlengthh, zmfmoist
+        REAL(KIND=WP), ALLOCATABLE, DIMENSION(:,:) :: zsrct, zsigs, zcei
+        REAL(KIND=WP), ALLOCATABLE, DIMENSION(:,:) :: zflxzthvmf, zflxzumf, zflxzvmf
+        REAL(KIND=WP), ALLOCATABLE, DIMENSION(:,:) :: zrus, zrvs, zrws, zrthls, zrtkes
+        REAL(KIND=WP), ALLOCATABLE, DIMENSION(:,:) :: zwth, zwrc, zdp, ztp, ztdiff, ztdiss, zedr
+        REAL(KIND=WP), ALLOCATABLE, DIMENSION(:,:,:) :: zrt, zrrs, zsvt, zrsvs, zwsv
+        REAL(KIND=WP), ALLOCATABLE, DIMENSION(:,:,:) :: zhgradleo, zhgradgog
+        REAL(KIND=WP), ALLOCATABLE, DIMENSION(:) :: zdircosxw, zdircosyw, zdircoszw
+        REAL(KIND=WP), ALLOCATABLE, DIMENSION(:) :: zcosslope, zsinslope, zzs
+        REAL(KIND=WP), ALLOCATABLE, DIMENSION(:) :: zsfth, zsfrv, zsfu, zsfv
+        REAL(KIND=WP), ALLOCATABLE, DIMENSION(:) :: zbl_depth, zsbl_depth
+        REAL(KIND=WP), ALLOCATABLE, DIMENSION(:,:) :: zsfsv
+
         CHARACTER(LEN=4), DIMENSION(2) :: HLBCX, HLBCY
-        CHARACTER(LEN=4) :: HTURBLEN_CL, HCLOUD, HELEC
+        CHARACTER(LEN=4) :: HCLOUD, HELEC
         LOGICAL :: O2D, ONOMIXLG, OFLAT, OCOUPLES, OBLOWSNOW, OIBM, OFLYER
         LOGICAL :: OCOMPUTE_SRC, OOCEAN, ODEEPOC, ODIAG_IN_RUN, OCLOUDMODIFLM
         INTEGER :: KSPLIT, KSV, KSV_LGBEG, KSV_LGEND, KHALO
         INTEGER :: KSV_LIMA_NR, KSV_LIMA_NS, KSV_LIMA_NG, KSV_LIMA_NH
         INTEGER :: KGRADIENTSLEO, KGRADIENTSGOG, KRRL, KRRI
-        REAL(KIND=WP) :: PRSNOW, PCEI_MIN, PCEI_MAX, PCOEF_AMPL_SAT
+        REAL(KIND=WP) :: PRSNOW
 
-        ! Convert C pointers to Fortran arrays
+        ! Map C pointers (Python arrays, nlon x nlev)
         CALL C_F_POINTER(ptr_pdxx, f_pdxx, [nlon, nlev])
         CALL C_F_POINTER(ptr_pdyy, f_pdyy, [nlon, nlev])
         CALL C_F_POINTER(ptr_pdzz, f_pdzz, [nlon, nlev])
@@ -826,214 +825,197 @@ CONTAINS
         CALL C_F_POINTER(ptr_prrs, f_prrs, [nlon, nlev, krr])
         CALL C_F_POINTER(ptr_prtkes, f_prtkes, [nlon, nlev])
 
-        ! Initialize DIMPHYEX structure
-        D%NIT = nlon
-        D%NIB = 1
-        D%NIE = nlon
-        D%NJT = 1
-        D%NJB = 1
-        D%NJE = 1
-        D%NKT = nlev
-        D%NKL = 1
-        D%NKA = 1
-        D%NKU = nlev
-        D%NKB = 1
-        D%NKE = nlev
-        D%NKTB = 1
-        D%NKTE = nlev
-        D%NIBC = 1
-        D%NJBC = 1
-        D%NIEC = nlon
-        D%NJEC = 1
-        D%NIJT = nlon
-        D%NIJB = 1
-        D%NIJE = nlon
-        D%NKLES = nlev
+        ! Shared, validated PHYEX config (CST, CSTURB, TURBN, NEBN, TBUCONF).
+        CALL ensure_phyex_init(ptstep, PHYEX_MICRO_ICE3, PHYEX_SCONV_NONE, PHYEX_TURB_TKEL)
+
+        ! Local config: force BL89 (self-computed mixing length, no external
+        ! HARATU lengths needed) and enable subgrid condensation, consistent with
+        ! OCOMPUTE_SRC + the full-size PSIGS/PSRCT below.
+        TURBN = G_PHYEX%TURBN
+        TURBN%LHARAT   = .FALSE.
+        TURBN%CTURBLEN = 'BL89'
+        NEBN = G_PHYEX%NEBN
+        NEBN%LSUBG_COND = .TRUE.
+        TLES%LLES = .FALSE.
+        TLES%LLES_CALL = .FALSE.
+        TPFILE%LOPENED = .FALSE.
+        TPFILE%NLU = 0
+
+        nk = nlev + 2
+
+        ! DIMPHYEX with a 2-level vertical halo (interior 2..nk-1), NKL=-1.
+        D%NIT = nlon; D%NIB = 1; D%NIE = nlon
+        D%NJT = 1; D%NJB = 1; D%NJE = 1
+        D%NIJT = nlon; D%NIJB = 1; D%NIJE = nlon
+        D%NIBC = 1; D%NJBC = 1; D%NIEC = nlon; D%NJEC = 1
+        D%NKL = -1
+        D%NKT = nk
+        D%NKA = nk
+        D%NKU = 1
+        D%NKB = nk - 1
+        D%NKE = 2
+        D%NKTB = 2
+        D%NKTE = nk - 1
+        D%NKLES = nk
         D%NLESMASK = 0
         D%NLES_TIMES = 0
 
-        ! Initialize physical constants
-        CALL INI_CST()
-
-        ! Initialize TURBN parameters (from MODD_TURB_n)
-        TURBN%CTURBDIM = '1DIM'        ! 1D turbulence
-        TURBN%CTURBLEN = 'BL89'        ! Bougeault-Lacarrere mixing length
-        TURBN%XIMPL = 1.0_WP           ! Implicit scheme
-        TURBN%LTURB_FLX = .FALSE.      ! No turbulent flux output
-        TURBN%LTURB_DIAG = .FALSE.     ! No turbulent diagnostics
-        TURBN%LSIG_CONV = .FALSE.      ! No sigma_s due to convection
-        TURBN%LRMC01 = .FALSE.         ! RMC01 boundary layer scheme
-        TURBN%LHARAT = .TRUE.          ! Use Hara Tani modification
-        TURBN%XTKEMIN = 1.0E-10_WP     ! Minimum TKE
-
-        ! Initialize NEBN parameters
-        NEBN%LSUBG_COND = .FALSE.
-        NEBN%LSIGMAS = .TRUE.
-        NEBN%CFRAC_ICE_ADJUST = 'S'
-        NEBN%CCONDENS = 'CB02'
-        NEBN%CLAMBDA3 = 'CB'
-
-        ! Initialize budget configuration
-        BUCONF%LBU_ENABLE = .FALSE.
-        BUCONF%LBUDGET_TH = .FALSE.
-        BUCONF%LBUDGET_RV = .FALSE.
-        BUCONF%LBUDGET_RC = .FALSE.
-        BUCONF%LBUDGET_RI = .FALSE.
-        BUCONF%LBUDGET_RR = .FALSE.
-        BUCONF%LBUDGET_RS = .FALSE.
-        BUCONF%LBUDGET_RG = .FALSE.
-
-        ! Initialize TLES structure
-        TLES%LLES_CALL = .FALSE.
-
-        ! Initialize TPFILE structure (dummy, no output)
-        TPFILE%LOPENED = .FALSE.
-
-        ! Set control flags
-        O2D = .FALSE.
-        ONOMIXLG = .FALSE.
-        OFLAT = .TRUE.
-        OCOUPLES = .FALSE.
-        OBLOWSNOW = .FALSE.
-        OIBM = .FALSE.
-        OFLYER = .FALSE.
-        OCOMPUTE_SRC = .FALSE.
-        OOCEAN = .FALSE.
-        ODEEPOC = .FALSE.
-        ODIAG_IN_RUN = .FALSE.
+        ! Operational flags (mirror the offline reference driver).
+        KRRL = 0
+        IF (krr >= 2) KRRL = 1
+        IF (krr >= 3) KRRL = 2
+        KRRI = 0
+        IF (krr >= 4) KRRI = 1
+        IF (krr >= 5) KRRI = 2
+        IF (krr >= 6) KRRI = 3
+        IF (krr >= 7) KRRI = 4
+        KSV = 0; KSV_LGBEG = 0; KSV_LGEND = 0
+        KSV_LIMA_NR = 0; KSV_LIMA_NS = 0; KSV_LIMA_NG = 0; KSV_LIMA_NH = 0
+        KGRADIENTSLEO = 0; KGRADIENTSGOG = 0; KHALO = 1
+        KSPLIT = MAX(1, G_PHYEX%TURBN%NTURBSPLIT)
+        HLBCX = 'CYCL'; HLBCY = 'CYCL'
+        HCLOUD = 'ICE3'; HELEC = 'NONE'
+        O2D = .FALSE.; ONOMIXLG = .FALSE.; OFLAT = .FALSE.
+        OCOUPLES = .FALSE.; OBLOWSNOW = .FALSE.; OIBM = .FALSE.
+        OFLYER = .TRUE.; OCOMPUTE_SRC = .TRUE.
+        OOCEAN = .FALSE.; ODEEPOC = .FALSE.; ODIAG_IN_RUN = .FALSE.
         OCLOUDMODIFLM = .FALSE.
-
-        ! Set parameters
-        KSPLIT = 1
-        KSV = 0
-        KSV_LGBEG = 0
-        KSV_LGEND = 0
-        KSV_LIMA_NR = 0
-        KSV_LIMA_NS = 0
-        KSV_LIMA_NG = 0
-        KSV_LIMA_NH = 0
-        KHALO = 1
-        KGRADIENTSLEO = 0
-        KGRADIENTSGOG = 0
-        KRRL = 1
-        KRRI = 1
-
-        HLBCX = (/'CYCL', 'CYCL'/)
-        HLBCY = (/'CYCL', 'CYCL'/)
-        HTURBLEN_CL = 'NONE'
-        HCLOUD = 'NONE'
-        HELEC = 'NONE'
-
         PRSNOW = 1.0_WP
-        PCEI_MIN = 0.0_WP
-        PCEI_MAX = 1.0_WP
-        PCOEF_AMPL_SAT = 1.0_WP
 
-        ! Allocate and initialize additional arrays
-        ALLOCATE(PDZX(nlon, nlev))
-        ALLOCATE(PDZY(nlon, nlev))
-        ALLOCATE(PDIRCOSXW(nlon))
-        ALLOCATE(PDIRCOSYW(nlon))
-        ALLOCATE(PDIRCOSZW(nlon))
-        ALLOCATE(PCOSSLOPE(nlon))
-        ALLOCATE(PSINSLOPE(nlon))
-        ALLOCATE(PZS(nlon))
-        ALLOCATE(PLENGTHM(nlon, nlev))
-        ALLOCATE(PLENGTHH(nlon, nlev))
-        ALLOCATE(MFMOIST(nlon, nlev))
-        ALLOCATE(PBL_DEPTH(nlon))
-        ALLOCATE(PSBL_DEPTH(nlon))
-        ALLOCATE(PSIGS(0, 0))
-        ALLOCATE(PFLXZTHVMF(nlon, nlev))
-        ALLOCATE(PFLXZUMF(nlon, nlev))
-        ALLOCATE(PFLXZVMF(nlon, nlev))
-        ALLOCATE(PTP(nlon, nlev))
-        ALLOCATE(PDP(nlon, nlev))
-        ALLOCATE(PTDIFF(nlon, nlev))
-        ALLOCATE(PTDISS(nlon, nlev))
-        ALLOCATE(PSFSV(0, 0))
-        ALLOCATE(PSVT(0, 0, 0))
-        ALLOCATE(PRSVS(0, 0, 0))
-        ALLOCATE(PHGRADLEO(0, 0))
-        ALLOCATE(PHGRADGOG(0, 0))
-        ALLOCATE(PSRCT(0, 0))
+        ! Allocate internal arrays (full-size; sizes honour the MERGE contracts).
+        ALLOCATE(zdxx(nlon,nk), zdyy(nlon,nk), zdzz(nlon,nk), zzz(nlon,nk))
+        ALLOCATE(zdzx(nlon,nk), zdzy(nlon,nk))
+        ALLOCATE(zrhodj(nlon,nk), zthvref(nlon,nk), zpabst(nlon,nk))
+        ALLOCATE(zut(nlon,nk), zvt(nlon,nk), zwt(nlon,nk), ztket(nlon,nk), zthlt(nlon,nk))
+        ALLOCATE(zlengthm(nlon,nk), zlengthh(nlon,nk), zmfmoist(nlon,nk))
+        ALLOCATE(zsrct(nlon,nk), zsigs(nlon,nk))
+        ALLOCATE(zcei(nlon,0))
+        ALLOCATE(zflxzthvmf(nlon,nk), zflxzumf(nlon,nk), zflxzvmf(nlon,nk))
+        ALLOCATE(zrus(nlon,nk), zrvs(nlon,nk), zrws(nlon,nk), zrthls(nlon,nk), zrtkes(nlon,nk))
+        ALLOCATE(zwth(nlon,nk), zwrc(nlon,nk), zdp(nlon,nk), ztp(nlon,nk))
+        ALLOCATE(ztdiff(nlon,nk), ztdiss(nlon,nk), zedr(nlon,nk))
+        ALLOCATE(zrt(nlon,nk,krr), zrrs(nlon,nk,krr))
+        ALLOCATE(zsvt(nlon,nk,0), zrsvs(nlon,nk,0), zwsv(nlon,nk,0))
+        ALLOCATE(zhgradleo(nlon,nk,0), zhgradgog(nlon,nk,0))
+        ALLOCATE(zdircosxw(nlon), zdircosyw(nlon), zdircoszw(nlon))
+        ALLOCATE(zcosslope(nlon), zsinslope(nlon), zzs(nlon))
+        ALLOCATE(zsfth(nlon), zsfrv(nlon), zsfu(nlon), zsfv(nlon))
+        ALLOCATE(zbl_depth(nlon), zsbl_depth(nlon), zsfsv(nlon,0))
 
-        ! Initialize arrays
-        PDZX = 0.0_WP
-        PDZY = 0.0_WP
-        PDIRCOSXW = 0.0_WP
-        PDIRCOSYW = 0.0_WP
-        PDIRCOSZW = 1.0_WP
-        PCOSSLOPE = 1.0_WP
-        PSINSLOPE = 0.0_WP
-        PZS = 0.0_WP
-        PLENGTHM = 100.0_WP
-        PLENGTHH = 100.0_WP
-        MFMOIST = 0.0_WP
-        PBL_DEPTH = 1000.0_WP
-        PSBL_DEPTH = 100.0_WP
-        PFLXZTHVMF = 0.0_WP
-        PFLXZUMF = 0.0_WP
-        PFLXZVMF = 0.0_WP
+        ! Copy Python fields into the halo'd interior (zero-gradient halos; PZZ
+        ! extrapolated so the boundary layer thicknesses stay non-zero).
+        CALL cin(f_pdxx, zdxx)
+        CALL cin(f_pdyy, zdyy)
+        CALL cin(f_pdzz, zdzz)
+        CALL cin_z(f_pzz, zzz)
+        CALL cin(f_prhodj, zrhodj)
+        CALL cin(f_pthvref, zthvref)
+        CALL cin(f_ppabst, zpabst)
+        CALL cin(f_put, zut)
+        CALL cin(f_pvt, zvt)
+        CALL cin(f_pwt, zwt)
+        CALL cin(f_ptket, ztket)
+        CALL cin(f_pthlt, zthlt)
+        CALL cin3(f_prt, zrt)
+        CALL cin(f_prus, zrus)
+        CALL cin(f_prvs, zrvs)
+        CALL cin(f_prws, zrws)
+        CALL cin(f_prthls, zrthls)
+        CALL cin(f_prtkes, zrtkes)
+        CALL cin3(f_prrs, zrrs)
 
-        ! OpenACC data region for GPU execution
-        !$acc data create(PDZX, PDZY, PDIRCOSXW, PDIRCOSYW, PDIRCOSZW) &
-        !$acc&     create(PCOSSLOPE, PSINSLOPE, PZS, PLENGTHM, PLENGTHH, MFMOIST) &
-        !$acc&     create(PBL_DEPTH, PSBL_DEPTH, PSIGS, PFLXZTHVMF, PFLXZUMF, PFLXZVMF) &
-        !$acc&     create(PTP, PDP, PTDIFF, PTDISS, PSFSV, PSVT, PRSVS) &
-        !$acc&     create(PHGRADLEO, PHGRADGOG, PSRCT) &
-        !$acc&     deviceptr(f_pdxx, f_pdyy, f_pdzz, f_pzz, f_prhodj, f_pthvref) &
-        !$acc&     deviceptr(f_psfth, f_psfrv, f_ppabst, f_put, f_pvt, f_pwt) &
-        !$acc&     deviceptr(f_ptket, f_pthlt, f_prt, f_prus, f_prvs, f_prws) &
-        !$acc&     deviceptr(f_prthls, f_prrs, f_prtkes)
+        zdzx = 0.0_WP; zdzy = 0.0_WP
+        zlengthm = 0.0_WP; zlengthh = 0.0_WP; zmfmoist = 0.0_WP
+        zsrct = 0.0_WP; zsigs = 0.0_WP
+        zflxzthvmf = 0.0_WP; zflxzumf = 0.0_WP; zflxzvmf = 0.0_WP
+        zdircosxw = 0.0_WP; zdircosyw = 0.0_WP; zdircoszw = 1.0_WP
+        zcosslope = 1.0_WP; zsinslope = 0.0_WP; zzs = 0.0_WP
+        zsfth = f_psfth; zsfrv = f_psfrv; zsfu = 0.0_WP; zsfv = 0.0_WP
+        zbl_depth = 0.0_WP; zsbl_depth = 0.0_WP
 
-        ! Call the actual TURB routine
-        CALL TURB(                                                             &
-            CST, CSTURB, BUCONF, TURBN, NEBN, D, TLES,                         &
-            krr, KRRL, KRRI, HLBCX, HLBCY, KGRADIENTSLEO,                      &
-            KGRADIENTSGOG, KHALO,                                              &
-            KSPLIT, OCLOUDMODIFLM, KSV, KSV_LGBEG, KSV_LGEND,                  &
-            KSV_LIMA_NR, KSV_LIMA_NS, KSV_LIMA_NG, KSV_LIMA_NH,                &
-            O2D, ONOMIXLG, OFLAT, OCOUPLES, OBLOWSNOW, OIBM, OFLYER,           &
-            OCOMPUTE_SRC, PRSNOW,                                              &
-            OOCEAN, ODEEPOC, ODIAG_IN_RUN,                                     &
-            HTURBLEN_CL, HCLOUD, HELEC,                                        &
-            ptstep, TPFILE,                                                    &
-            PDXX=f_pdxx, PDYY=f_pdyy, PDZZ=f_pdzz, PDZX=PDZX, PDZY=PDZY,       &
-            PZZ=f_pzz,                                                         &
-            PDIRCOSXW=PDIRCOSXW, PDIRCOSYW=PDIRCOSYW, PDIRCOSZW=PDIRCOSZW,    &
-            PCOSSLOPE=PCOSSLOPE, PSINSLOPE=PSINSLOPE,                         &
-            PRHODJ=f_prhodj, PTHVREF=f_pthvref,                                &
-            PHGRADLEO=PHGRADLEO, PHGRADGOG=PHGRADGOG, PZS=PZS,                 &
-            PSFTH=f_psfth, PSFRV=f_psfrv, PSFSV=PSFSV,                         &
-            PSFU=f_psfth, PSFV=f_psfth,                                        &
-            PPABST=f_ppabst, PUT=f_put, PVT=f_pvt, PWT=f_pwt,                  &
-            PTKET=f_ptket, PSVT=PSVT, PSRCT=PSRCT,                             &
-            PLENGTHM=PLENGTHM, PLENGTHH=PLENGTHH, MFMOIST=MFMOIST,             &
-            PBL_DEPTH=PBL_DEPTH, PSBL_DEPTH=PSBL_DEPTH,                        &
-            PCEI=PSRCT, PCEI_MIN=PCEI_MIN, PCEI_MAX=PCEI_MAX,                  &
-            PCOEF_AMPL_SAT=PCOEF_AMPL_SAT,                                     &
-            PTHLT=f_pthlt, PRT=f_prt,                                          &
-            PRUS=f_prus, PRVS=f_prvs, PRWS=f_prws,                             &
-            PRTHLS=f_prthls, PRRS=f_prrs, PRSVS=PRSVS, PRTKES=f_prtkes,        &
-            PSIGS=PSIGS,                                                       &
-            PFLXZTHVMF=PFLXZTHVMF, PFLXZUMF=PFLXZUMF, PFLXZVMF=PFLXZVMF,       &
-            PWTH=PTDIFF, PWRC=PTDIFF, PWSV=PRSVS,                              &
-            PDP=PDP, PTP=PTP, PTDIFF=PTDIFF, PTDISS=PTDISS,                    &
-            TBUDGETS=TBUDGETS, KBUDGETS=0                                      &
-        )
+        ! Call TURB with the offline reference's argument order.
+        CALL TURB(G_PHYEX%CST, G_PHYEX%CSTURB, G_PHYEX%MISC%TBUCONF, TURBN, NEBN, D, TLES, &
+            krr, KRRL, KRRI, HLBCX, HLBCY, KGRADIENTSLEO, KGRADIENTSGOG, KHALO,            &
+            KSPLIT, OCLOUDMODIFLM, KSV, KSV_LGBEG, KSV_LGEND,                              &
+            KSV_LIMA_NR, KSV_LIMA_NS, KSV_LIMA_NG, KSV_LIMA_NH,                            &
+            O2D, ONOMIXLG, OFLAT, OCOUPLES, OBLOWSNOW, OIBM, OFLYER, OCOMPUTE_SRC, PRSNOW, &
+            OOCEAN, ODEEPOC, ODIAG_IN_RUN,                                                 &
+            TURBN%CTURBLEN_CLOUD, HCLOUD, HELEC,                                           &
+            ptstep, TPFILE,                                                                &
+            zdxx, zdyy, zdzz, zdzx, zdzy, zzz,                                             &
+            zdircosxw, zdircosyw, zdircoszw, zcosslope, zsinslope,                         &
+            zrhodj, zthvref, zhgradleo, zhgradgog, zzs,                                    &
+            zsfth, zsfrv, zsfsv, zsfu, zsfv,                                               &
+            zpabst, zut, zvt, zwt, ztket, zsvt, zsrct,                                     &
+            zlengthm, zlengthh, zmfmoist,                                                  &
+            zbl_depth, zsbl_depth,                                                         &
+            zcei, TURBN%XCEI_MIN, TURBN%XCEI_MAX, TURBN%XCOEF_AMPL_SAT,                    &
+            zthlt, zrt,                                                                    &
+            zrus, zrvs, zrws, zrthls, zrrs, zrsvs, zrtkes,                                 &
+            zsigs,                                                                         &
+            zflxzthvmf, zflxzumf, zflxzvmf,                                                &
+            zwth, zwrc, zwsv, zdp, ztp, ztdiff, ztdiss,                                    &
+            TBUDGETS, KBUDGETS=0, PEDR=zedr)
 
-        !$acc end data
+        ! Copy interior tendencies back to the Python arrays.
+        CALL cout(zrus, f_prus)
+        CALL cout(zrvs, f_prvs)
+        CALL cout(zrws, f_prws)
+        CALL cout(zrthls, f_prthls)
+        CALL cout(zrtkes, f_prtkes)
+        CALL cout3(zrrs, f_prrs)
 
-        ! Cleanup
-        DEALLOCATE(PDZX, PDZY, PDIRCOSXW, PDIRCOSYW, PDIRCOSZW)
-        DEALLOCATE(PCOSSLOPE, PSINSLOPE, PZS)
-        DEALLOCATE(PLENGTHM, PLENGTHH, MFMOIST)
-        DEALLOCATE(PBL_DEPTH, PSBL_DEPTH, PSIGS)
-        DEALLOCATE(PFLXZTHVMF, PFLXZUMF, PFLXZVMF)
-        DEALLOCATE(PTP, PDP, PTDIFF, PTDISS)
-        DEALLOCATE(PSFSV, PSVT, PRSVS)
-        DEALLOCATE(PHGRADLEO, PHGRADGOG, PSRCT)
+        DEALLOCATE(zdxx, zdyy, zdzz, zzz, zdzx, zdzy, zrhodj, zthvref, zpabst)
+        DEALLOCATE(zut, zvt, zwt, ztket, zthlt, zlengthm, zlengthh, zmfmoist)
+        DEALLOCATE(zsrct, zsigs, zcei, zflxzthvmf, zflxzumf, zflxzvmf)
+        DEALLOCATE(zrus, zrvs, zrws, zrthls, zrtkes)
+        DEALLOCATE(zwth, zwrc, zdp, ztp, ztdiff, ztdiss, zedr)
+        DEALLOCATE(zrt, zrrs, zsvt, zrsvs, zwsv, zhgradleo, zhgradgog)
+        DEALLOCATE(zdircosxw, zdircosyw, zdircoszw, zcosslope, zsinslope, zzs)
+        DEALLOCATE(zsfth, zsfrv, zsfu, zsfv, zbl_depth, zsbl_depth, zsfsv)
+
+    CONTAINS
+
+        ! Copy a (nlon,nlev) field into a (nlon,nk) array: interior 2..nk-1,
+        ! zero-gradient halos at 1 and nk.
+        SUBROUTINE cin(src, dst)
+            REAL(KIND=WP), INTENT(IN)  :: src(:,:)
+            REAL(KIND=WP), INTENT(OUT) :: dst(:,:)
+            dst(:,2:nk-1) = src(:,1:nlev)
+            dst(:,1)  = src(:,1)
+            dst(:,nk) = src(:,nlev)
+        END SUBROUTINE cin
+
+        ! Like cin but linearly extrapolates the halos (for heights, so layer
+        ! thicknesses across the boundary stay finite and non-zero).
+        SUBROUTINE cin_z(src, dst)
+            REAL(KIND=WP), INTENT(IN)  :: src(:,:)
+            REAL(KIND=WP), INTENT(OUT) :: dst(:,:)
+            dst(:,2:nk-1) = src(:,1:nlev)
+            dst(:,1)  = 2.0_WP*src(:,1)    - src(:,2)
+            dst(:,nk) = 2.0_WP*src(:,nlev) - src(:,nlev-1)
+        END SUBROUTINE cin_z
+
+        SUBROUTINE cin3(src, dst)
+            REAL(KIND=WP), INTENT(IN)  :: src(:,:,:)
+            REAL(KIND=WP), INTENT(OUT) :: dst(:,:,:)
+            dst(:,2:nk-1,:) = src(:,1:nlev,:)
+            dst(:,1,:)  = src(:,1,:)
+            dst(:,nk,:) = src(:,nlev,:)
+        END SUBROUTINE cin3
+
+        ! Copy the interior of a (nlon,nk) array back to a (nlon,nlev) field.
+        SUBROUTINE cout(src, dst)
+            REAL(KIND=WP), INTENT(IN)  :: src(:,:)
+            REAL(KIND=WP), INTENT(OUT) :: dst(:,:)
+            dst(:,1:nlev) = src(:,2:nk-1)
+        END SUBROUTINE cout
+
+        SUBROUTINE cout3(src, dst)
+            REAL(KIND=WP), INTENT(IN)  :: src(:,:,:)
+            REAL(KIND=WP), INTENT(OUT) :: dst(:,:,:)
+            dst(:,1:nlev,:) = src(:,2:nk-1,:)
+        END SUBROUTINE cout3
 
     END SUBROUTINE c_turb_wrap
 
