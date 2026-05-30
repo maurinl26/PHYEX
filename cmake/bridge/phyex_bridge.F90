@@ -23,7 +23,6 @@ MODULE phyex_bridge
     USE MODD_ELEC_PARAM, ONLY : ELEC_PARAM_t
     USE MODD_ELEC_DESCR, ONLY : ELEC_DESCR_t
     USE MODE_INI_CST, ONLY : INI_CST
-    USE MODE_INI_RAIN_ICE, ONLY : INI_RAIN_ICE
     USE MODI_INI_PHYEX, ONLY : INI_PHYEX
     USE MODD_PHYEX, ONLY : PHYEX_t
 
@@ -249,33 +248,6 @@ CONTAINS
 
     END SUBROUTINE c_ice_adjust_wrap
 
-    ! C-callable initialization for RAIN_ICE
-    SUBROUTINE c_ini_rain_ice_wrap(timestep, dzmin, krr, hcloud) BIND(C, name="c_ini_rain_ice")
-        REAL(WP), VALUE, INTENT(IN) :: timestep
-        REAL(WP), VALUE, INTENT(IN) :: dzmin
-        INTEGER(C_INT), VALUE, INTENT(IN) :: krr
-        CHARACTER(KIND=C_CHAR), DIMENSION(4), INTENT(IN) :: hcloud
-
-        CHARACTER(LEN=4) :: f_hcloud
-        INTEGER :: i, ksplitr
-        INTEGER, PARAMETER :: KMODEL = 1  ! Model number (default: 1)
-
-        DO i = 1, 4
-            f_hcloud(i:i) = hcloud(i)
-        END DO
-
-        ! Initialize physical constants
-        CALL INI_CST()
-
-        ! Set up module pointers for model 1
-        CALL PARAM_ICE_GOTO_MODEL(0, KMODEL)
-        CALL RAIN_ICE_PARAM_GOTO_MODEL(0, KMODEL)
-        CALL RAIN_ICE_DESCR_GOTO_MODEL(0, KMODEL)
-
-        ! Initialize RAIN_ICE microphysics scheme
-        CALL INI_RAIN_ICE("AROME ", KMODEL, timestep, dzmin, ksplitr, f_hcloud)
-    END SUBROUTINE c_ini_rain_ice_wrap
-
     ! C-callable wrapper for RAIN_ICE
     SUBROUTINE c_rain_ice_wrap(                                            &
         nlon, nlev, krr, timestep,                                         &
@@ -287,8 +259,7 @@ CONTAINS
         ptr_hlc_hrc, ptr_hlc_hcf, ptr_hli_hri, ptr_hli_hcf,               &
         ptr_ths, ptr_rvs, ptr_rcs, ptr_rrs, ptr_ris, ptr_rss, ptr_rgs,    &
         ptr_evap3d, ptr_rainfr,                                            &
-        ptr_inprc, ptr_inprr, ptr_inprs, ptr_inprg, ptr_indep,            &
-        ptr_rain_ice_param, ptr_rain_ice_descr                             &
+        ptr_inprc, ptr_inprr, ptr_inprs, ptr_inprg, ptr_indep             &
     ) BIND(C, name="c_rain_ice")
     
         ! C-compatible arguments (using WP for working precision)
@@ -318,9 +289,6 @@ CONTAINS
         TYPE(C_PTR), VALUE, INTENT(IN) :: ptr_inprc, ptr_inprr
         TYPE(C_PTR), VALUE, INTENT(IN) :: ptr_inprs, ptr_inprg, ptr_indep
 
-        ! C pointers for parameter structures
-        TYPE(C_PTR), VALUE, INTENT(IN) :: ptr_rain_ice_param, ptr_rain_ice_descr
-
         ! Fortran pointers to map C data (using WP for working precision)
         REAL(KIND=WP), POINTER, DIMENSION(:,:) :: f_exn, f_dzz, f_rhodj
         REAL(KIND=WP), POINTER, DIMENSION(:,:) :: f_rhodref, f_exnref, f_pabs
@@ -340,21 +308,9 @@ CONTAINS
 
         ! Local variables for PHYEX structures
         TYPE(DIMPHYEX_t) :: D
-        TYPE(PARAM_ICE_t) :: PARAMI
-        TYPE(ELEC_PARAM_t) :: ELECP
-        TYPE(ELEC_DESCR_t) :: ELECD
-        TYPE(TBUDGETCONF_t) :: BUCONF
         TYPE(TBUDGETDATA_PTR), DIMENSION(0) :: TBUDGETS
         LOGICAL :: OELEC, OSEDIM_BEARD
         REAL(KIND=WP) :: PTHVREFZIKB
-
-        ! Fortran pointers for parameter structures (passed from Python)
-        TYPE(RAIN_ICE_PARAM_t), POINTER :: rain_ice_param_local
-        TYPE(RAIN_ICE_DESCR_t), POINTER :: rain_ice_descr_local
-
-        ! Convert C pointers to Fortran structure pointers
-        CALL C_F_POINTER(ptr_rain_ice_param, rain_ice_param_local)
-        CALL C_F_POINTER(ptr_rain_ice_descr, rain_ice_descr_local)
 
         ! Convert C pointers to Fortran arrays
         CALL C_F_POINTER(ptr_exn, f_exn, [nlon, nlev])
@@ -422,41 +378,16 @@ CONTAINS
         D%NLESMASK = 0
         D%NLES_TIMES = 0
         
-        ! Initialize physical constants (uses global CST module)
-        CALL INI_CST()
-        
-        ! Initialize PARAMI (microphysics parameters) - same as ICE_ADJUST
-        PARAMI%CSUBG_AUCV_RC = 'NONE'
-        PARAMI%CSUBG_AUCV_RI = 'NONE'
-        PARAMI%CSUBG_PR_PDF = 'SIGM'
-        PARAMI%CSUBG_RC_RR_ACCR = 'NONE'
-        PARAMI%CSUBG_RR_EVAP = 'NONE'
-        PARAMI%LOCND2 = .FALSE.
-        PARAMI%LSEDIM_AFTER = .FALSE.
-        PARAMI%LWARM = .TRUE.
-        PARAMI%LPACK_MICRO = .FALSE.
-        PARAMI%NPROMICRO = 0
-        PARAMI%LEXCLDROP = .FALSE.
-        
-        ! Initialize ICEP and ICED (will use default values)
-        ! These structures are complex and would need proper initialization
-        ! For now, we rely on Fortran's default initialization
+        ! Fully initialize the PHYEX configuration once per process. This
+        ! populates CST, PARAM_ICEN and the RAIN_ICE_PARAMN/RAIN_ICE_DESCRN
+        ! microphysical constants via INI_PHYEX (HCLOUD='ICE3'), so RAIN_ICE
+        ! no longer relies on caller-supplied or default-initialized structures.
+        CALL ensure_phyex_init(timestep)
 
-        ! Initialize electrical parameters (disabled)
+        ! Electrical scheme disabled (ELEC structures unused when OELEC=.FALSE.)
         OELEC = .FALSE.
         OSEDIM_BEARD = .FALSE.
         PTHVREFZIKB = 0.0_WP
-
-        ! Initialize budget configuration (disabled)
-        BUCONF%LBU_ENABLE = .FALSE.
-        BUCONF%LBUDGET_TH = .FALSE.
-        BUCONF%LBUDGET_RV = .FALSE.
-        BUCONF%LBUDGET_RC = .FALSE.
-        BUCONF%LBUDGET_RI = .FALSE.
-        BUCONF%LBUDGET_RR = .FALSE.
-        BUCONF%LBUDGET_RS = .FALSE.
-        BUCONF%LBUDGET_RG = .FALSE.
-        BUCONF%LBUDGET_RH = .FALSE.
 
         ! OpenACC data region for GPU execution
         !$acc data deviceptr(f_exn, f_dzz, f_rhodj, f_rhodref, f_exnref, f_pabs) &
@@ -467,10 +398,11 @@ CONTAINS
         !$acc&     deviceptr(f_inprc, f_inprr, f_evap3d, f_inprs, f_inprg, f_indep) &
         !$acc&     deviceptr(f_rainfr, f_sigs)
 
-        ! Call the actual RAIN_ICE routine with locally passed structures
+        ! Call the actual RAIN_ICE routine with the INI_PHYEX-populated config
         CALL RAIN_ICE(                                                     &
-            D, CST, PARAMI, rain_ice_param_local, rain_ice_descr_local,    &
-            ELECP, ELECD, BUCONF,                                          &
+            D, G_PHYEX%CST, G_PHYEX%PARAM_ICEN,                            &
+            G_PHYEX%RAIN_ICE_PARAMN, G_PHYEX%RAIN_ICE_DESCRN,             &
+            G_PHYEX%ELEC_PARAM, G_PHYEX%ELEC_DESCR, G_PHYEX%MISC%TBUCONF, &
             OELEC, OSEDIM_BEARD, PTHVREFZIKB,                              &
             timestep, krr, f_exn,                                          &
             f_dzz, f_rhodj, f_rhodref, f_exnref, f_pabs, f_cit, f_cldfr,   &

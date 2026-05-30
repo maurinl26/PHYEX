@@ -58,3 +58,73 @@ def ice_adjust_inputs():
         "icldfr": _f32(n2, 0.0),
         "wcldfr": _f32(n2, 0.0),
     }
+
+
+@pytest.fixture
+def rain_ice_inputs():
+    """A dict of float64 Fortran-ordered arrays for a RAIN_ICE call.
+
+    A warm column (T ≈ 282 K, above freezing) carrying both cloud water and
+    rain, so the explicit warm-rain microphysics (autoconversion, accretion,
+    evaporation, sedimentation) has something to act on. RAIN_ICE *adds* its
+    microphysical tendencies to the source arrays (ths, r?s), which enter as
+    ``R/timestep`` — same convention as ICE_ADJUST.
+    """
+    n2 = (NLON, NLEV)
+    n1 = (NLON,)
+    dt = 50.0
+    exn = _f32(n2, 0.957)          # (85000/100000)^(Rd/Cp)
+    tht = _f32(n2, 295.0)          # theta -> T = tht*exn ~ 282 K (warm)
+    rvt = _f32(n2, 0.012)          # 12 g/kg vapour
+    rct = _f32(n2, 1.0e-3)         # 1 g/kg cloud water
+    rrt = _f32(n2, 2.0e-4)         # 0.2 g/kg rain
+    rit = _f32(n2, 0.0)
+    rst = _f32(n2, 0.0)
+    rgt = _f32(n2, 0.0)
+    return {
+        "timestep": dt,
+        "krr": 6,
+        # atmospheric state
+        "exn": exn,
+        "dzz": _f32(n2, 100.0),
+        "rhodj": _f32(n2, 1.0),
+        "rhodref": _f32(n2, 1.0),
+        "exnref": _f32(n2, 0.957),
+        "pabs": _f32(n2, 85000.0),
+        "cldfr": _f32(n2, 1.0),
+        "icldfr": _f32(n2, 0.0),
+        "ssio": _f32(n2, 0.0),
+        "ssiu": _f32(n2, 0.0),
+        "ifr": _f32(n2, 0.0),
+        # mixing ratios at t
+        "tht": tht,
+        "rvt": rvt,
+        "rct": rct,
+        "rrt": rrt,
+        "rit": rit,
+        "rst": rst,
+        "rgt": rgt,
+        "sigs": _f32(n2, 0.0),
+        # in/out
+        "cit": _f32(n2, 0.0),
+        "hlc_hrc": _f32(n2, 0.0),
+        "hlc_hcf": _f32(n2, 0.0),
+        "hli_hri": _f32(n2, 0.0),
+        "hli_hcf": _f32(n2, 0.0),
+        # source arrays = R / timestep
+        "ths": tht / dt,
+        "rvs": rvt / dt,
+        "rcs": rct / dt,
+        "rrs": rrt / dt,
+        "ris": rit / dt,
+        "rss": rst / dt,
+        "rgs": rgt / dt,
+        # outputs
+        "evap3d": _f32(n2, 0.0),
+        "rainfr": _f32(n2, 0.0),
+        "inprc": _f32(n1, 0.0),
+        "inprr": _f32(n1, 0.0),
+        "inprs": _f32(n1, 0.0),
+        "inprg": _f32(n1, 0.0),
+        "indep": _f32(n1, 0.0),
+    }

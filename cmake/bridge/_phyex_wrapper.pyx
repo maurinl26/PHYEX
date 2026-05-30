@@ -15,8 +15,6 @@ ctypedef np.float64_t DTYPE_t
 
 # External C Declaration matching phyex_bridge.F90
 cdef extern:
-    void c_ini_rain_ice(double timestep, double dzmin, int krr, char *hcloud)
-
     void c_shallow_convection(
         int nlon,
         int nlev,
@@ -439,29 +437,6 @@ def rain_ice(
         &inprc[0], &inprr[0], &inprs[0], &inprg[0], &indep[0]
     )
     
-    # Arrays are modified in-place, no return needed
-
-def init_rain_ice(double timestep, double dzmin, int krr, str hcloud="AROME"):
-    """
-    Initialize Fortran microphysics global structures (ICEP, ICED).
-
-    This must be called once before any call to rain_ice.
-
-    Parameters
-    ----------
-    timestep : float
-        Time step (seconds)
-    dzmin : float
-        Minimum layer thickness (meters)
-    krr : int
-        Number of moist variables (typically 6 or 7)
-    hcloud : str
-        Cloud scheme type (e.g., "AROME")
-    """
-    hcloud_bytes = hcloud.encode('ascii').ljust(4)[:4]
-    cdef char* c_hcloud = hcloud_bytes
-    c_ini_rain_ice(timestep, dzmin, krr, c_hcloud)
-
     # Arrays are modified in-place, no return needed
 
 
