@@ -33,6 +33,8 @@ __all__ = [
     "normalize_micro",
     "normalize_sconv",
     "normalize_turb",
+    "configure",
+    "active_micro_scheme",
 ]
 
 try:
@@ -56,6 +58,49 @@ if _w is not None:
         if hasattr(_w, _name):
             globals()[_name] = getattr(_w, _name)
             __all__.append(_name)
+
+
+def configure(micro="ICE3", sconv="NONE", turb="TKEL", timestep=1.0):
+    """Select the PHYEX schemes for this process.
+
+    PHYEX (via ``INI_PHYEX``) allocates module-global state, so the scheme is
+    fixed for the life of the process: the first configuration wins. Call this
+    before the first routine call to choose the microphysics/shallow-convection/
+    turbulence schemes; otherwise the routines default to ICE3/NONE/TKEL on first
+    use.
+
+    Calling it again with the same micro scheme is a no-op; requesting a
+    different one raises RuntimeError (start a new process to switch). ``micro``,
+    ``sconv`` and ``turb`` accept a scheme enum, its integer id, or the legacy
+    4-character code. ``timestep`` only affects init-time precomputation
+    (sedimentation splitting); the per-call timestep is what drives the physics.
+
+    Returns the active :class:`MicroScheme`.
+    """
+    if _w is None or not hasattr(_w, "_configure"):
+        raise RuntimeError("PHYEX compiled CPU extension not available")
+    m = normalize_micro(micro)
+    if m is not MicroScheme.ICE3:
+        raise NotImplementedError(
+            f"micro scheme {m} is not wired in these bindings yet "
+            "(only ICE3 is supported)")
+    s = normalize_sconv(sconv)
+    t = normalize_turb(turb)
+    active = _w.active_micro_scheme()
+    if active != -1 and active != int(m):
+        raise RuntimeError(
+            f"PHYEX is already initialized with micro scheme id {active}; cannot "
+            f"switch to {m} (id {int(m)}). The scheme is fixed once per process.")
+    _w._configure(float(timestep), int(m), int(s), int(t))
+    return m
+
+
+def active_micro_scheme():
+    """Return the active :class:`MicroScheme`, or ``None`` if not yet initialized."""
+    if _w is None or not hasattr(_w, "active_micro_scheme"):
+        return None
+    _id = _w.active_micro_scheme()
+    return None if _id == -1 else MicroScheme(_id)
 
 
 def is_gpu_build() -> bool:

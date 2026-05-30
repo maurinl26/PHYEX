@@ -110,12 +110,23 @@ MODULE phyex_bridge
     ! module-global state (e.g. RAIN_ICE_DESCR) that must not be re-allocated.
     TYPE(PHYEX_t), SAVE :: G_PHYEX
     LOGICAL, SAVE       :: G_PHYEX_INIT = .FALSE.
+    ! Scheme ids the process was initialized with (-1 = not yet initialized).
+    ! INI_PHYEX allocates module-global state, so the scheme is fixed for the
+    ! life of the process; these let the Python layer report/guard against an
+    ! attempt to switch scheme after the first call.
+    INTEGER(C_INT), SAVE :: G_MICRO_ID = -1
+    INTEGER(C_INT), SAVE :: G_SCONV_ID = -1
+    INTEGER(C_INT), SAVE :: G_TURB_ID  = -1
 
 CONTAINS
 
-    ! Initialize the full PHYEX configuration exactly once (idempotent).
-    SUBROUTINE ensure_phyex_init(timestep)
+    ! Initialize the full PHYEX configuration exactly once (idempotent). The
+    ! scheme ids select CMICRO/CSCONV/CTURB; the first call wins (INI_PHYEX
+    ! allocates global state and must not be re-run), so later calls with
+    ! different ids are ignored here — the Python layer guards against that.
+    SUBROUTINE ensure_phyex_init(timestep, micro_id, sconv_id, turb_id)
         REAL(WP), INTENT(IN) :: timestep
+        INTEGER(C_INT), INTENT(IN) :: micro_id, sconv_id, turb_id
         TYPE(TFILEDATA) :: TPFILE
         INTEGER :: IULOUT
         REAL :: ZDZMIN
@@ -129,9 +140,9 @@ CONTAINS
         ! (single source of truth) instead of inline magic strings.
         CALL INI_PHYEX('AROME ', TPFILE, .TRUE., IULOUT, 0, 1,            &
             REAL(timestep), ZDZMIN,                                       &
-            phyex_micro_name(PHYEX_MICRO_ICE3),                          &
-            phyex_sconv_name(PHYEX_SCONV_NONE),                          &
-            phyex_turb_name(PHYEX_TURB_TKEL),                            &
+            phyex_micro_name(micro_id),                                  &
+            phyex_sconv_name(sconv_id),                                  &
+            phyex_turb_name(turb_id),                                    &
             LDDEFAULTVAL=.TRUE., LDREADNAM=.FALSE., LDCHECK=.FALSE.,      &
             KPRINT=0, LDINIT=.FALSE., PHYEX_OUT=G_PHYEX)
         G_PHYEX%MISC%LMFCONV      = .FALSE.
@@ -142,13 +153,31 @@ CONTAINS
         G_PHYEX%NEBN%CFRAC_ICE_ADJUST = 'S'
         CALL INI_PHYEX('AROME ', TPFILE, .TRUE., IULOUT, 0, 1,           &
             REAL(timestep), ZDZMIN,                                      &
-            phyex_micro_name(PHYEX_MICRO_ICE3),                         &
-            phyex_sconv_name(PHYEX_SCONV_NONE),                         &
-            phyex_turb_name(PHYEX_TURB_TKEL),                           &
+            phyex_micro_name(micro_id),                                 &
+            phyex_sconv_name(sconv_id),                                 &
+            phyex_turb_name(turb_id),                                   &
             LDDEFAULTVAL=.FALSE., LDREADNAM=.FALSE., LDCHECK=.FALSE.,    &
             KPRINT=0, LDINIT=.TRUE., PHYEX_IN=G_PHYEX, PHYEX_OUT=G_PHYEX)
+        G_MICRO_ID = micro_id
+        G_SCONV_ID = sconv_id
+        G_TURB_ID  = turb_id
         G_PHYEX_INIT = .TRUE.
     END SUBROUTINE ensure_phyex_init
+
+    ! C-callable: configure the process schemes (delegates to ensure_phyex_init).
+    SUBROUTINE c_phyex_configure(timestep, micro_id, sconv_id, turb_id) &
+            BIND(C, name="c_phyex_configure")
+        REAL(WP), VALUE, INTENT(IN) :: timestep
+        INTEGER(C_INT), VALUE, INTENT(IN) :: micro_id, sconv_id, turb_id
+        CALL ensure_phyex_init(timestep, micro_id, sconv_id, turb_id)
+    END SUBROUTINE c_phyex_configure
+
+    ! C-callable: id of the microphysics scheme the process was initialized with
+    ! (-1 if not yet initialized). Lets Python guard against scheme switching.
+    FUNCTION c_phyex_active_micro() RESULT(id) BIND(C, name="c_phyex_active_micro")
+        INTEGER(C_INT) :: id
+        id = G_MICRO_ID
+    END FUNCTION c_phyex_active_micro
 
     ! C-callable wrapper for ICE_ADJUST
     SUBROUTINE c_ice_adjust_wrap(                                          &
@@ -266,7 +295,7 @@ CONTAINS
         D%NLES_TIMES = 0
         
         ! Fully initialize the PHYEX configuration once per process.
-        CALL ensure_phyex_init(timestep)
+        CALL ensure_phyex_init(timestep, PHYEX_MICRO_ICE3, PHYEX_SCONV_NONE, PHYEX_TURB_TKEL)
         
         ! Allocate and initialize additional required arrays
         ALLOCATE(PRHODJ(nlon, nlev))
@@ -461,7 +490,7 @@ CONTAINS
         ! populates CST, PARAM_ICEN and the RAIN_ICE_PARAMN/RAIN_ICE_DESCRN
         ! microphysical constants via INI_PHYEX (HCLOUD='ICE3'), so RAIN_ICE
         ! no longer relies on caller-supplied or default-initialized structures.
-        CALL ensure_phyex_init(timestep)
+        CALL ensure_phyex_init(timestep, PHYEX_MICRO_ICE3, PHYEX_SCONV_NONE, PHYEX_TURB_TKEL)
 
         ! Electrical scheme disabled (ELEC structures unused when OELEC=.FALSE.)
         OELEC = .FALSE.
@@ -675,7 +704,7 @@ CONTAINS
         ! routines. The Kain-Fritsch CONVPAR_SHAL/CONVPAR/NSV structures are NOT
         ! part of PHYEX_t, so they stay hand-rolled above. ptadjs is the natural
         ! timescale argument here (CST init is timestep-independent).
-        CALL ensure_phyex_init(ptadjs)
+        CALL ensure_phyex_init(ptadjs, PHYEX_MICRO_ICE3, PHYEX_SCONV_NONE, PHYEX_TURB_TKEL)
 
         ! OpenACC data region for GPU execution
         !$acc data deviceptr(f_ppabst, f_pzz, f_ptkecls, f_ptt, f_prvt, f_prct, f_prit, f_pwt) &

@@ -23,6 +23,11 @@ ctypedef np.float64_t DTYPE_t
 # When you change a c_* wrapper in the .F90, change it here and in the matching
 # def below in the same commit, and keep a smoke test that actually calls it.
 cdef extern:
+    # Process-level configuration: select schemes once (first call wins).
+    void c_phyex_configure(double timestep, int micro_id, int sconv_id, int turb_id)
+    # Active microphysics scheme id, or -1 if not yet initialized.
+    int c_phyex_active_micro()
+
     void c_shallow_convection(
         int nlon,
         int nlev,
@@ -159,6 +164,61 @@ cdef extern:
         double *ptr_indep
     )
 
+# Process-level scheme configuration
+# ----------------------------------
+# INI_PHYEX allocates module-global state, so the scheme is fixed for the life
+# of the process: the first configuration wins. configure() sets it explicitly;
+# the routines below accept scheme= as sugar that configures-or-validates.
+
+# Default scheme ids — must match the PHYEX_* parameters in phyex_bridge.F90.
+DEF _MICRO_ICE3 = 1
+DEF _SCONV_NONE = 0
+DEF _TURB_TKEL = 1
+
+
+def _configure(double timestep, int micro_id, int sconv_id, int turb_id):
+    """Low-level: select the process schemes (first call wins)."""
+    c_phyex_configure(timestep, micro_id, sconv_id, turb_id)
+
+
+def active_micro_scheme():
+    """Return the active microphysics scheme id, or -1 if not yet initialized."""
+    return c_phyex_active_micro()
+
+
+cdef int _resolve_micro(object scheme) except -2:
+    """Map scheme (None / enum / int / legacy str) to a supported micro id."""
+    cdef object m
+    if scheme is None:
+        return _MICRO_ICE3
+    from phyex.enums import normalize_micro, MicroScheme
+    m = normalize_micro(scheme)
+    if m is not MicroScheme.ICE3:
+        raise NotImplementedError(
+            "micro scheme {!s} is not wired in these bindings yet (only ICE3 is "
+            "supported; ICE4 needs hail arrays, LIMA is a different 2-moment "
+            "scheme)".format(m))
+    return <int>int(m)
+
+
+cdef void _apply_micro_scheme(double timestep, object scheme) except *:
+    """Configure the micro scheme for this process, or validate consistency.
+
+    First use configures the process. A later call requesting a *different*
+    scheme raises RuntimeError instead of silently running the locked scheme.
+    """
+    cdef int micro_id = _resolve_micro(scheme)
+    cdef int active = c_phyex_active_micro()
+    if active == -1:
+        c_phyex_configure(timestep, micro_id, _SCONV_NONE, _TURB_TKEL)
+    elif active != micro_id:
+        raise RuntimeError(
+            "PHYEX is already initialized with micro scheme id {}; cannot switch "
+            "to id {}. The scheme is fixed once per process (INI_PHYEX allocates "
+            "global state); start a new process to use a different scheme."
+            .format(active, micro_id))
+
+
 # Python-Callable Wrapper Function
 def ice_adjust(
     # Scalar parameters
@@ -190,7 +250,10 @@ def ice_adjust(
     # Output arrays (modified in-place)
     np.ndarray[DTYPE_t, ndim=2, mode="fortran"] cldfr,
     np.ndarray[DTYPE_t, ndim=2, mode="fortran"] icldfr,
-    np.ndarray[DTYPE_t, ndim=2, mode="fortran"] wcldfr
+    np.ndarray[DTYPE_t, ndim=2, mode="fortran"] wcldfr,
+    # Microphysics scheme selector (None -> ICE3). Process-level: see
+    # phyex.configure(); switching after first use raises RuntimeError.
+    object scheme=None,
 ):
     """
     Cython wrapper for the PHYEX ICE_ADJUST routine.
@@ -288,6 +351,9 @@ def ice_adjust(
                     name, nlon, nlev, arr.shape[0], arr.shape[1])
             )
     
+    # Select / validate the process microphysics scheme before the call.
+    _apply_micro_scheme(timestep, scheme)
+
     # Call the Fortran function through C bridge
     c_ice_adjust(
         nlon, nlev, krr, timestep,
@@ -348,7 +414,10 @@ def rain_ice(
     np.ndarray[DTYPE_t, ndim=1, mode="fortran"] inprr,
     np.ndarray[DTYPE_t, ndim=1, mode="fortran"] inprs,
     np.ndarray[DTYPE_t, ndim=1, mode="fortran"] inprg,
-    np.ndarray[DTYPE_t, ndim=1, mode="fortran"] indep
+    np.ndarray[DTYPE_t, ndim=1, mode="fortran"] indep,
+    # Microphysics scheme selector (None -> ICE3). Process-level: see
+    # phyex.configure(); switching after first use raises RuntimeError.
+    object scheme=None,
 ):
     """
     Call the PHYEX RAIN_ICE microphysics routine.
@@ -429,6 +498,9 @@ def rain_ice(
         raise ValueError("indep shape mismatch: expected ({},), got ({},)".format(
             nlon, indep.shape[0]))
     
+    # Select / validate the process microphysics scheme before the call.
+    _apply_micro_scheme(timestep, scheme)
+
     # Call the Fortran function through C bridge
     c_rain_ice(
         nlon, nlev, krr, timestep,
