@@ -1,6 +1,7 @@
 name: Python bindings (CPU)
 
-# Builds the CPU Cython wheel and runs the host-side smoke tests.
+# Builds the CPU Cython wheel and runs the host-side test suite, including the
+# golden-reference tests (binding vs a native PHYEX call).
 # Uses the vendored pyfortool-transformed tree (PHYEX_USE_TRANSFORMED_SOURCES=ON),
 # so no fxtran/pyfortool toolchain is required on the runner.
 
@@ -44,13 +45,39 @@ jobs:
         run: |
           python -c "import phyex; assert hasattr(phyex,'ice_adjust'); print('CPU build OK, GPU build:', phyex.is_gpu_build())"
 
-      - name: Run CPU tests
+      - name: Build golden-reference oracles
+        # Standalone drivers that call each routine directly (not via the bridge).
+        # Built with the SAME toolchain/flags (Release) as the wheel so the
+        # binding and the native call are bit-identical and the golden tests can
+        # use tight tolerances. Not part of the wheel.
+        run: |
+          cmake -S "$GITHUB_WORKSPACE" -B "$GITHUB_WORKSPACE/build/oracle" -G Ninja \
+            -DCMAKE_Fortran_COMPILER=gfortran \
+            -DPHYEX_USE_TRANSFORMED_SOURCES=ON \
+            -DENABLE_DOUBLE_PRECISION=ON \
+            -DENABLE_PHYEX_BUILD_ORACLES=ON \
+            -DCMAKE_BUILD_TYPE=Release
+          for t in oracle_ice_adjust_dp oracle_rain_ice_dp oracle_turb_dp oracle_shallow_convection_dp; do
+            cmake --build "$GITHUB_WORKSPACE/build/oracle" --target "$t"
+          done
+
+      - name: Regenerate golden references in-environment
+        # Regenerate from this runner's oracles so the golden the binding is
+        # checked against was produced by the same compiler that built the wheel.
+        # This makes the golden test a clean binding-vs-native-call cross-check
+        # rather than a cross-platform FP comparison.
+        run: |
+          for r in ice_adjust rain_ice turb shallow_convection; do
+            python "$GITHUB_WORKSPACE/tests/golden/gen_golden_${r}.py"
+          done
+
+      - name: Run CPU test suite
         # Run from a directory without the local ./phyex source package, so the
         # *installed* extension is imported rather than the (uncompiled) source.
         run: |
           python -m pip install pytest
           cd "$RUNNER_TEMP"
-          python -m pytest "$GITHUB_WORKSPACE/tests/test_cpu_ice_adjust.py" -v
+          python -m pytest "$GITHUB_WORKSPACE/tests/" -v
 
       - name: Generate CPU golden reference (artifact for the GPU job)
         run: |
