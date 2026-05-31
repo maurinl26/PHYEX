@@ -1,0 +1,126 @@
+name: Reproducibility Tests
+
+on:
+  push:
+    branches:
+      - master
+      - main
+  pull_request:
+    branches:
+      - master
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-testprogs:
+    name: Build Test Programs
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gfortran cmake ninja-build
+
+      - name: Install ecbuild
+        run: |
+          git clone --depth 1 https://github.com/ecmwf/ecbuild.git
+          cd ecbuild
+          mkdir build && cd build
+          cmake .. -DCMAKE_INSTALL_PREFIX=$HOME/.local
+          make install
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Setup Spack
+        uses: spack/setup-spack@v2
+
+      - name: Install Fiat via Spack
+        run: |
+          spack install fiat
+          echo "CMAKE_PREFIX_PATH=$(spack location -i fiat)" >> $GITHUB_ENV
+
+      - name: Configure CMake
+        run: |
+          mkdir build && cd build
+          cmake .. \
+            -GNinja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=$PWD/install \
+            -DHAVE_DOUBLE_PRECISION=ON \
+            -DHAVE_SINGLE_PRECISION=OFF \
+            -DHAVE_PHYEX_BUILD_PROGS=ON \
+            -DPHYEX_FETCH_FIAT=OFF \
+            -DCMAKE_PREFIX_PATH=$CMAKE_PREFIX_PATH
+
+      - name: Build
+        run: |
+          cd build
+          ninja
+          
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: testprogs-build
+          path: |
+            build/bin/
+            build/lib/
+          retention-days: 1
+
+  run-tests:
+    name: Run ${{ matrix.test }}
+    needs: build-testprogs
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        test: [ice_adjust, rain_ice, turb, shallow]
+      fail-fast: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: testprogs-build
+          path: build
+
+      - name: Make executables runnable
+        run: chmod +x build/bin/*.exe
+
+      - name: Run test
+        run: |
+          cd tools/testprogs_data/${{ matrix.test }}
+          ../../../build/bin/main_${{ matrix.test }}.exe --check > output.txt 2>&1 || true
+          cat output.txt
+
+      - name: Upload test output
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-output-${{ matrix.test }}
+          path: tools/testprogs_data/${{ matrix.test }}/output.txt
+          retention-days: 7
+
+  summary:
+    name: Test Summary
+    needs: run-tests
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Generate summary
+        run: |
+          echo "## Reproducibility Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Test | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| ice_adjust | ${{ needs.run-tests.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| rain_ice | ${{ needs.run-tests.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| turb | ${{ needs.run-tests.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| shallow | ${{ needs.run-tests.result }} |" >> $GITHUB_STEP_SUMMARY

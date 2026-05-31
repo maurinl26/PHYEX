@@ -3,6 +3,10 @@ PHYsique EXternalisée
 
 Documentation can be found in the [docs directory](./docs/PHYEX.md).
 
+**Python bindings (Cython + OpenACC):** `pip install .` builds the CPU bindings;
+the GPU (OpenACC/CuPy) path and the full build/test story are described in
+[docs/PYTHON_BINDINGS_WALKTHROUGH.md](./docs/PYTHON_BINDINGS_WALKTHROUGH.md).
+
 Several presentations were done, the materials can be found on the [wiki](https://github.com/UMR-CNRM/PHYEX/wiki).
 
 Prerequisites:

@@ -1,0 +1,199 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version_tag:
+        description: 'Version tag (e.g., v0.8.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  # Create transformation packages for all models
+  transform:
+    name: Transform ${{ matrix.model }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        model: [arome, lmdz, mesonh]
+      fail-fast: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Get version
+        id: version
+        run: |
+          VERSION="${{ github.event_name == 'push' && github.ref_name || github.event.inputs.version_tag }}"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Transform code
+        run: |
+          python .github/scripts/transform_phyex.py \
+            --model ${{ matrix.model }} \
+            --version ${{ steps.version.outputs.version }} \
+            --output-dir ${{ matrix.model }}_release \
+            --verbose
+
+      - name: Create archive
+        run: |
+          tar -czf "${{ matrix.model }}_${{ steps.version.outputs.version }}.tar.gz" \
+            -C ${{ matrix.model }}_release .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.model }}-${{ steps.version.outputs.version }}
+          path: ${{ matrix.model }}_${{ steps.version.outputs.version }}.tar.gz
+          retention-days: 90
+
+  # Build AROME shared libraries
+  build-arome-binaries:
+    name: Build AROME binaries
+    needs: transform
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get version
+        id: version
+        run: |
+          VERSION="${{ github.event_name == 'push' && github.ref_name || github.event.inputs.version_tag }}"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Download AROME artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: arome-${{ steps.version.outputs.version }}
+
+      - name: Extract transformed sources
+        run: |
+          mkdir -p arome_build/src
+          tar -xzf arome_${{ steps.version.outputs.version }}.tar.gz -C arome_build
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gfortran cmake ninja-build
+
+      - name: Install ecbuild
+        run: |
+          git clone --depth 1 https://github.com/ecmwf/ecbuild.git
+          cd ecbuild
+          mkdir build && cd build
+          cmake .. -DCMAKE_INSTALL_PREFIX=$HOME/.local
+          make install
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Copy CMake files
+        run: |
+          cp CMakeLists.txt arome_build/
+          cp -r cmake arome_build/
+
+      - name: Configure CMake
+        run: |
+          cd arome_build
+          mkdir build && cd build
+          cmake .. \
+            -GNinja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=$PWD/install \
+            -DHAVE_DOUBLE_PRECISION=ON \
+            -DHAVE_SINGLE_PRECISION=ON \
+            -DHAVE_PHYEX_BUILD_PROGS=OFF
+
+      - name: Build
+        run: |
+          cd arome_build/build
+          ninja
+
+      - name: Install
+        run: |
+          cd arome_build/build
+          ninja install
+
+      - name: Create binary archive
+        run: |
+          cd arome_build/build/install
+          tar -czf "${{ github.workspace }}/libphyex_arome_${{ steps.version.outputs.version }}.tar.gz" .
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: arome-binaries-${{ steps.version.outputs.version }}
+          path: libphyex_arome_${{ steps.version.outputs.version }}.tar.gz
+          retention-days: 90
+
+
+  # Create GitHub release with all packages
+  release:
+    name: Create GitHub Release
+    needs: [transform, build-arome-binaries]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+
+    steps:
+      - name: Get version
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: PHYEX ${{ steps.version.outputs.version }}
+          body: |
+            ## PHYEX Release ${{ steps.version.outputs.version }}
+
+            ### Packages
+
+            - **AROME** - CPU-only (OpenACC removed)
+              - Source: `arome_${{ steps.version.outputs.version }}.tar.gz`
+              - **Binaries (dp+sp):** `libphyex_arome_${{ steps.version.outputs.version }}.tar.gz`
+
+            - **LMDZ** - CPU-only (OpenACC removed)
+              - Archive: `lmdz_${{ steps.version.outputs.version }}.tar.gz`
+
+            - **Meso-NH** - GPU-capable (OpenACC preserved)
+              - Archive: `mesonh_${{ steps.version.outputs.version }}.tar.gz`
+
+            ### Usage
+
+            ```bash
+            # AROME raw transformed sources (for further transformations)
+            wget ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/arome_${{ steps.version.outputs.version }}.tar.gz
+
+            # AROME binaries (download shared libraries - includes libphyex_dp.so and libphyex_sp.so)
+            wget ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/libphyex_arome_${{ steps.version.outputs.version }}.tar.gz
+
+            # LMDZ or Meso-NH (download archive)
+            wget ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/lmdz_${{ steps.version.outputs.version }}.tar.gz
+            ```
+          files: |
+            artifacts/arome-${{ steps.version.outputs.version }}/arome_${{ steps.version.outputs.version }}.tar.gz
+            artifacts/arome-binaries-${{ steps.version.outputs.version }}/libphyex_arome_${{ steps.version.outputs.version }}.tar.gz
+            artifacts/lmdz-${{ steps.version.outputs.version }}/lmdz_${{ steps.version.outputs.version }}.tar.gz
+            artifacts/mesonh-${{ steps.version.outputs.version }}/mesonh_${{ steps.version.outputs.version }}.tar.gz

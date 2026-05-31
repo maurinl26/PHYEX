@@ -1,0 +1,3 @@
+SUBROUTINE INI_CONVPAR
+STOP "INI_CONVPAR should not be called"
+END

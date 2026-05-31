@@ -42,7 +42,7 @@ python transform_phyex.py --model mesonh --version v0.8.0 --output-dir mesonh_re
 
 ### Usage in CI/CD
 
-Used by `.github/workflows/release-models.yml`:
+Used by `.github/workflows/release.yml`:
 
 ```yaml
 - name: Transform code

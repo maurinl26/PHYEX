@@ -1,0 +1,71 @@
+name: Python bindings (CPU)
+
+# Builds the CPU Cython wheel and runs the host-side test suite, including the
+# golden-reference tests (binding vs a native PHYEX call). Orchestration lives in
+# the Makefile so this file stays declarative; `make goldens` rebuilds the
+# oracles and regenerates the references in-environment, so the golden tests are
+# a clean binding-vs-native cross-check on the runner's own toolchain.
+# Uses the vendored pyfortool-transformed tree (no fxtran/pyfortool needed).
+
+on:
+  push:
+    branches: [master, python-bindings-on-master]
+    paths:
+      - 'cmake/bridge/**'
+      - 'phyex_transformed/**'
+      - 'phyex/**'
+      - 'tests/**'
+      - 'CMakeLists.txt'
+      - 'Makefile'
+      - 'pyproject.toml'
+      - '.github/workflows/python-cpu.yml'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-test:
+    name: Build CPU wheel & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gfortran cmake ninja-build make
+
+      - name: Install ecbuild
+        # ECMWF's CMake-only build system (not on PyPI); the build needs
+        # find_package(ecbuild 3.11). Install it and expose it on CMAKE_PREFIX_PATH.
+        run: |
+          git clone --depth 1 --branch 3.11.0 https://github.com/ecmwf/ecbuild.git "$RUNNER_TEMP/ecbuild-src"
+          cmake -S "$RUNNER_TEMP/ecbuild-src" -B "$RUNNER_TEMP/ecbuild-build"
+          cmake --install "$RUNNER_TEMP/ecbuild-build" --prefix "$HOME/.local"
+          echo "CMAKE_PREFIX_PATH=$HOME/.local${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install python tooling
+        run: python -m pip install --upgrade pip pytest
+
+      - name: Build wheel, oracles, goldens, and run the suite
+        run: |
+          make wheel
+          make oracles
+          make goldens
+          make test
+
+      - name: Generate CPU golden reference (artifact for the GPU job)
+        run: |
+          cd "$RUNNER_TEMP"
+          python "$GITHUB_WORKSPACE/tests/gen_reference.py"
+          test -f "$GITHUB_WORKSPACE/tests/data/ice_adjust_ref.npz"
+
+      - name: Upload CPU reference
+        uses: actions/upload-artifact@v4
+        with:
+          name: ice-adjust-cpu-reference
+          path: tests/data/ice_adjust_ref.npz
+          if-no-files-found: error
