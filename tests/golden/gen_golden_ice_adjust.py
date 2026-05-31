@@ -1,36 +1,18 @@
-"""Generate the INDEPENDENT golden reference for ICE_ADJUST.
+"""Generate the independent golden reference for ICE_ADJUST.
 
-Unlike tests/gen_reference.py (which snapshots the *binding's* own output), this
-drives a standalone Fortran oracle that calls ICE_ADJUST *directly* — it never
-touches the Cython/C bridge. The committed npz therefore lets the golden test
-prove the binding reproduces a native PHYEX call to round-off.
+Drives tests/oracle/oracle_ice_adjust.F90 (a direct ICE_ADJUST call, not the
+bridge) and freezes tests/data/ice_adjust_golden.npz. Run via `make goldens`,
+or directly once the oracle is built (`make oracles`):
 
-Build the oracle first (not part of the wheel):
-
-    cmake -S . -B build/oracle -G Ninja -DCMAKE_Fortran_COMPILER=gfortran \
-        -DPHYEX_USE_TRANSFORMED_SOURCES=ON -DENABLE_DOUBLE_PRECISION=ON \
-        -DENABLE_PHYEX_BUILD_ORACLES=ON
-    cmake --build build/oracle --target oracle_ice_adjust_dp
-
-Then:
-
-    python tests/golden/gen_golden_ice_adjust.py [path/to/oracle_ice_adjust_dp.exe]
-
-Writes tests/data/ice_adjust_golden.npz (inputs + oracle outputs).
+    python tests/golden/gen_golden_ice_adjust.py
 """
-import os
-import subprocess
-import sys
-import tempfile
-
 import numpy as np
 
-REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-DEFAULT_ORACLE = os.path.join(REPO, "build", "oracle", "bin", "oracle_ice_adjust_dp.exe")
+from _oracle import Reader, f8, i4, run_oracle, save_golden
 
 NLON, NLEV, KRR = 16, 40, 6
 
-# Order MUST match the READ statements in tests/oracle/oracle_ice_adjust.F90.
+# (nlon,nlev) arrays in the order oracle_ice_adjust.F90 reads them.
 ARRAYS_2D = [
     "pabs", "sigs", "th", "exn", "exn_ref", "rho_dry_ref",
     "rv", "rc", "ri", "rr", "rs", "rg",
@@ -46,7 +28,7 @@ def _f(shape, value):
 
 
 def build_inputs():
-    """A supersaturated warm column — the same physics case as the smoke test."""
+    """A supersaturated warm column — same physics case as the smoke test."""
     n2 = (NLON, NLEV)
     dt = 50.0
     rv, rc, ri, th = _f(n2, 0.02), _f(n2, 0.0), _f(n2, 0.0), _f(n2, 290.0)
@@ -63,40 +45,18 @@ def build_inputs():
 
 
 def main():
-    oracle = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_ORACLE
-    if not os.path.exists(oracle):
-        sys.exit(f"oracle binary not found: {oracle}\nBuild it first (see this file's docstring).")
+    dt, a = build_inputs()
+    blocks = [i4(np.array([NLON, NLEV, KRR])), f8(np.array([dt])), f8(a["sigqsat"])]
+    blocks += [f8(a[n]) for n in ARRAYS_2D]
 
-    dt, arrs = build_inputs()
+    out = Reader(run_oracle("ice_adjust", blocks))
+    golden = {"out_" + n: out.f8((NLON, NLEV)) for n in OUTPUTS}
+    out.done()
 
-    with tempfile.TemporaryDirectory() as tmp:
-        inp = os.path.join(tmp, "in.bin")
-        out = os.path.join(tmp, "out.bin")
-        with open(inp, "wb") as fh:
-            fh.write(np.array([NLON, NLEV, KRR], dtype="<i4").tobytes())
-            fh.write(np.array([dt], dtype="<f8").tobytes())
-            fh.write(np.asfortranarray(arrs["sigqsat"]).astype("<f8").tobytes(order="F"))
-            for name in ARRAYS_2D:
-                fh.write(np.asfortranarray(arrs[name]).astype("<f8").tobytes(order="F"))
-
-        subprocess.run([oracle, inp, out], check=True)
-
-        raw = np.fromfile(out, dtype="<f8")
-        n = NLON * NLEV
-        assert raw.size == len(OUTPUTS) * n, f"unexpected oracle output size {raw.size}"
-        golden = {}
-        for i, name in enumerate(OUTPUTS):
-            golden["out_" + name] = np.asfortranarray(
-                raw[i * n:(i + 1) * n].reshape((NLON, NLEV), order="F"))
-
-    # Store inputs alongside the golden outputs so the test runs on identical data.
-    payload = {"timestep": np.float64(dt), "krr": np.int64(KRR), "sigqsat": arrs["sigqsat"]}
-    payload.update({k: arrs[k] for k in ARRAYS_2D})
+    payload = {"timestep": np.float64(dt), "krr": np.int64(KRR), "sigqsat": a["sigqsat"]}
+    payload.update({k: a[k] for k in ARRAYS_2D})
     payload.update(golden)
-
-    dest = os.path.join(REPO, "tests", "data", "ice_adjust_golden.npz")
-    np.savez(dest, **payload)
-    print(f"wrote {dest} ({len(golden)} golden arrays from {os.path.basename(oracle)})")
+    print(f"wrote {save_golden('ice_adjust', payload)}")
 
 
 if __name__ == "__main__":

@@ -1,33 +1,13 @@
-"""Generate the INDEPENDENT golden reference for SHALLOW_CONVECTION.
+"""Generate the independent golden reference for SHALLOW_CONVECTION.
 
-Drives a standalone Fortran oracle (tests/oracle/oracle_shallow_convection.F90)
-that calls SHALLOW_CONVECTION *directly* (not the bridge). Uses a conditionally-
-unstable, moist column that actually *triggers* Kain-Fritsch shallow convection,
-so the golden is non-trivial (non-zero tendencies / mass flux / cloud indices)
-rather than a vacuous all-zeros reference.
-
-Build the oracle first (not part of the wheel):
-
-    cmake -S . -B build/oracle -G Ninja -DCMAKE_Fortran_COMPILER=gfortran \
-        -DPHYEX_USE_TRANSFORMED_SOURCES=ON -DENABLE_DOUBLE_PRECISION=ON \
-        -DENABLE_PHYEX_BUILD_ORACLES=ON
-    cmake --build build/oracle --target oracle_shallow_convection_dp
-
-Then:
-
-    python tests/golden/gen_golden_shallow_convection.py [path/to/exe]
-
-Writes tests/data/shallow_convection_golden.npz (inputs + oracle outputs).
+Drives tests/oracle/oracle_shallow_convection.F90 (a direct call, not the bridge)
+on a column tuned to actually trigger Kain-Fritsch shallow convection, so the
+golden is non-trivial. Freezes tests/data/shallow_convection_golden.npz. Run via
+`make goldens`.
 """
-import os
-import subprocess
-import sys
-import tempfile
-
 import numpy as np
 
-REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-DEFAULT_ORACLE = os.path.join(REPO, "build", "oracle", "bin", "oracle_shallow_convection_dp.exe")
+from _oracle import Reader, f8, i4, run_oracle, save_golden
 
 NLON, NLEV, KCH1 = 16, 40, 1
 KICE, KBDIA, KTDIA = 1, 1, 1
@@ -46,18 +26,17 @@ def _f(shape, value):
 def build_inputs():
     """A column tuned to TRIGGER Kain-Fritsch shallow convection (level 1 = ground)."""
     n2 = (NLON, NLEV)
-    dz = 100.0
-    z = np.arange(NLEV, dtype=np.float64) * dz
+    z = np.arange(NLEV, dtype=np.float64) * 100.0
     pabs = 1.0e5 * np.exp(-z / 8000.0)
-    temp = 303.0 - 9.8e-3 * z                       # steep, conditionally unstable
-    rv = np.maximum(0.016 - 1.2e-6 * z, 5.0e-4)     # moist boundary layer
+    temp = 303.0 - 9.8e-3 * z
+    rv = np.maximum(0.016 - 1.2e-6 * z, 5.0e-4)
 
     def col(profile):
         a = np.empty(n2, dtype=np.float64, order="F")
         a[:] = profile
         return a
 
-    a = dict(
+    return dict(
         ptkecls=_f((NLON,), 0.5),
         ppabst=col(pabs), pzz=col(z), ptt=col(temp), prvt=col(rv),
         prct=_f(n2, 0.0), prit=_f(n2, 0.0), pwt=_f(n2, 1.0),
@@ -68,50 +47,23 @@ def build_inputs():
         pch1=np.zeros((NLON, NLEV, KCH1), dtype=np.float64, order="F"),
         pch1ten=np.zeros((NLON, NLEV, KCH1), dtype=np.float64, order="F"),
     )
-    return a
-
-
-def _w(fh, arr):
-    fh.write(np.asfortranarray(arr).astype("<f8").tobytes(order="F"))
 
 
 def main():
-    oracle = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_ORACLE
-    if not os.path.exists(oracle):
-        sys.exit(f"oracle binary not found: {oracle}\nBuild it first (see this file's docstring).")
-
     a = build_inputs()
-    with tempfile.TemporaryDirectory() as tmp:
-        inp, out = os.path.join(tmp, "in.bin"), os.path.join(tmp, "out.bin")
-        with open(inp, "wb") as fh:
-            fh.write(np.array([NLON, NLEV, KICE, KBDIA, KTDIA, OSETTADJ, OCH1CONV, KCH1],
-                              dtype="<i4").tobytes())
-            fh.write(np.array([PTADJS], dtype="<f8").tobytes())
-            _w(fh, a["ptkecls"])
-            for n in ARRAYS_2D:
-                _w(fh, a[n])
-            fh.write(np.asfortranarray(a["kcltop"]).astype("<i4").tobytes(order="F"))
-            fh.write(np.asfortranarray(a["kclbas"]).astype("<i4").tobytes(order="F"))
-            _w(fh, a["pch1"])
-            _w(fh, a["pch1ten"])
+    blocks = [
+        i4(np.array([NLON, NLEV, KICE, KBDIA, KTDIA, OSETTADJ, OCH1CONV, KCH1])),
+        f8(np.array([PTADJS])), f8(a["ptkecls"]),
+    ]
+    blocks += [f8(a[n]) for n in ARRAYS_2D]
+    blocks += [i4(a["kcltop"]), i4(a["kclbas"]), f8(a["pch1"]), f8(a["pch1ten"])]
 
-        subprocess.run([oracle, inp, out], check=True)
-
-        with open(out, "rb") as fh:
-            buf = fh.read()
-        n2 = NLON * NLEV
-        golden, off = {}, 0
-        for n in OUT_2D:
-            golden["out_" + n] = np.frombuffer(buf, dtype="<f8", count=n2, offset=off).reshape(
-                (NLON, NLEV), order="F").copy()
-            off += n2 * 8
-        for n in ("kcltop", "kclbas"):
-            golden["out_" + n] = np.frombuffer(buf, dtype="<i4", count=NLON, offset=off).copy()
-            off += NLON * 4
-        golden["out_pch1ten"] = np.frombuffer(buf, dtype="<f8", count=n2 * KCH1, offset=off).reshape(
-            (NLON, NLEV, KCH1), order="F").copy()
-        off += n2 * KCH1 * 8
-        assert off == len(buf), f"oracle output size mismatch: {off} != {len(buf)}"
+    out = Reader(run_oracle("shallow_convection", blocks))
+    golden = {"out_" + n: out.f8((NLON, NLEV)) for n in OUT_2D}
+    golden["out_kcltop"] = out.i4(NLON)
+    golden["out_kclbas"] = out.i4(NLON)
+    golden["out_pch1ten"] = out.f8((NLON, NLEV, KCH1))
+    out.done()
 
     payload = {
         "kice": np.int64(KICE), "kbdia": np.int64(KBDIA), "ktdia": np.int64(KTDIA),
@@ -122,11 +74,8 @@ def main():
     }
     payload.update({k: a[k] for k in ARRAYS_2D})
     payload.update(golden)
-
-    dest = os.path.join(REPO, "tests", "data", "shallow_convection_golden.npz")
-    np.savez(dest, **payload)
-    triggered = golden["out_pumf"].max() > 0.0
-    print(f"wrote {dest} ({len(golden)} golden arrays; convection triggered: {triggered})")
+    dest = save_golden("shallow_convection", payload)
+    print(f"wrote {dest} (convection triggered: {golden['out_pumf'].max() > 0.0})")
 
 
 if __name__ == "__main__":

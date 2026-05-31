@@ -1,9 +1,11 @@
 name: Python bindings (CPU)
 
 # Builds the CPU Cython wheel and runs the host-side test suite, including the
-# golden-reference tests (binding vs a native PHYEX call).
-# Uses the vendored pyfortool-transformed tree (PHYEX_USE_TRANSFORMED_SOURCES=ON),
-# so no fxtran/pyfortool toolchain is required on the runner.
+# golden-reference tests (binding vs a native PHYEX call). Orchestration lives in
+# the Makefile so this file stays declarative; `make goldens` rebuilds the
+# oracles and regenerates the references in-environment, so the golden tests are
+# a clean binding-vs-native cross-check on the runner's own toolchain.
+# Uses the vendored pyfortool-transformed tree (no fxtran/pyfortool needed).
 
 on:
   push:
@@ -14,6 +16,7 @@ on:
       - 'phyex/**'
       - 'tests/**'
       - 'CMakeLists.txt'
+      - 'Makefile'
       - 'pyproject.toml'
       - '.github/workflows/python-cpu.yml'
   pull_request:
@@ -29,12 +32,11 @@ jobs:
       - name: Install toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y gfortran cmake ninja-build
+          sudo apt-get install -y gfortran cmake ninja-build make
 
       - name: Install ecbuild
-        # ecbuild is ECMWF's CMake-only build system (not on PyPI); the build
-        # needs find_package(ecbuild 3.11). Install it and expose it on
-        # CMAKE_PREFIX_PATH so both the wheel and the oracle builds find it.
+        # ECMWF's CMake-only build system (not on PyPI); the build needs
+        # find_package(ecbuild 3.11). Install it and expose it on CMAKE_PREFIX_PATH.
         run: |
           git clone --depth 1 --branch 3.11.0 https://github.com/ecmwf/ecbuild.git "$RUNNER_TEMP/ecbuild-src"
           cmake -S "$RUNNER_TEMP/ecbuild-src" -B "$RUNNER_TEMP/ecbuild-build"
@@ -45,53 +47,15 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Build & install the CPU wheel
-        run: |
-          python -m pip install --upgrade pip
-          # PHYEX_USE_TRANSFORMED_SOURCES + gfortran come from pyproject defaults.
-          python -m pip install . -v
+      - name: Install python tooling
+        run: python -m pip install --upgrade pip pytest
 
-      - name: Sanity import
-        # From a dir without ./phyex, so the *installed* extension is imported
-        # rather than the (uncompiled) source package.
+      - name: Build wheel, oracles, goldens, and run the suite
         run: |
-          cd "$RUNNER_TEMP"
-          python -c "import phyex; assert hasattr(phyex,'ice_adjust'); print('CPU build OK, GPU build:', phyex.is_gpu_build())"
-
-      - name: Build golden-reference oracles
-        # Standalone drivers that call each routine directly (not via the bridge).
-        # Built with the SAME toolchain/flags (Release) as the wheel so the
-        # binding and the native call are bit-identical and the golden tests can
-        # use tight tolerances. Not part of the wheel.
-        run: |
-          cmake -S "$GITHUB_WORKSPACE" -B "$GITHUB_WORKSPACE/build/oracle" -G Ninja \
-            -DCMAKE_Fortran_COMPILER=gfortran \
-            -DPHYEX_USE_TRANSFORMED_SOURCES=ON \
-            -DENABLE_DOUBLE_PRECISION=ON \
-            -DENABLE_PHYEX_BUILD_ORACLES=ON \
-            -DCMAKE_BUILD_TYPE=Release
-          for t in oracle_ice_adjust_dp oracle_rain_ice_dp oracle_turb_dp oracle_shallow_convection_dp; do
-            cmake --build "$GITHUB_WORKSPACE/build/oracle" --target "$t"
-          done
-
-      - name: Regenerate golden references in-environment
-        # Regenerate from this runner's oracles so the golden the binding is
-        # checked against was produced by the same compiler that built the wheel.
-        # This makes the golden test a clean binding-vs-native-call cross-check
-        # rather than a cross-platform FP comparison.
-        run: |
-          cd "$RUNNER_TEMP"
-          for r in ice_adjust rain_ice turb shallow_convection; do
-            python "$GITHUB_WORKSPACE/tests/golden/gen_golden_${r}.py"
-          done
-
-      - name: Run CPU test suite
-        # Run from a directory without the local ./phyex source package, so the
-        # *installed* extension is imported rather than the (uncompiled) source.
-        run: |
-          python -m pip install pytest
-          cd "$RUNNER_TEMP"
-          python -m pytest "$GITHUB_WORKSPACE/tests/" -v
+          make wheel
+          make oracles
+          make goldens
+          make test
 
       - name: Generate CPU golden reference (artifact for the GPU job)
         run: |

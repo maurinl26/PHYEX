@@ -216,8 +216,11 @@ foreach(PRECISION ${precision_list})
           parkind_${PRECISION}
         OUTPUT_NAME ${ONAME}_${PRECISION}.exe
       )
+      # REAL8 promotion + allow long source lines (some declaration/READ lines
+      # in the oracle drivers exceed gfortran's 132-col free-form default, which
+      # ecbuild's -Werror=line-truncation would otherwise reject).
       target_compile_options(${ONAME}_${PRECISION} PUBLIC
-        $<$<COMPILE_LANGUAGE:Fortran>:${PHYEX_COMPILE_OPTIONS_REAL}>)
+        $<$<COMPILE_LANGUAGE:Fortran>:${PHYEX_COMPILE_OPTIONS_REAL};-ffree-line-length-none>)
     endforeach()
   endif()
 
