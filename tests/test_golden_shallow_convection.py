@@ -21,27 +21,16 @@ Regenerate after building the oracle (see
 tests/golden/gen_golden_shallow_convection.py).
 """
 import os
-import platform
 
 import numpy as np
 import pytest
 
 phyex = pytest.importorskip("phyex")
 
-pytestmark = [
-    pytest.mark.skipif(
-        not hasattr(phyex, "shallow_convection"),
-        reason="CPU binding (phyex.shallow_convection) not present in this build",
-    ),
-    # The legacy Kain-Fritsch scheme heap-corrupts on Linux glibc when it
-    # actually triggers (a SIGABRT, not a binding bug — bounds-checked builds run
-    # clean on macOS). Validate the convecting golden where it's stable; the
-    # smoke test (a non-triggering column) still covers shallow on every platform.
-    pytest.mark.skipif(
-        platform.system() != "Darwin",
-        reason="triggering Kain-Fritsch is unstable on non-macOS libc; golden validated on macOS",
-    ),
-]
+pytestmark = pytest.mark.skipif(
+    not hasattr(phyex, "shallow_convection"),
+    reason="CPU binding (phyex.shallow_convection) not present in this build",
+)
 
 GOLDEN = os.path.join(os.path.dirname(__file__), "data", "shallow_convection_golden.npz")
 

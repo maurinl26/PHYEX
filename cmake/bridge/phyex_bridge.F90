@@ -584,6 +584,21 @@ CONTAINS
         TYPE(CONVPAR_SHAL) :: CVP_SHAL
         LOGICAL :: LOSETTADJ, LOCH1CONV
 
+        ! Vertically-padded working copies + effective KTDIA. CONVECT_UPDRAFT_SHAL
+        ! writes the entrainment/detrainment rates at KCTL+1 and KCTL+2 (one and
+        ! two levels above cloud top). The scheme reserves CVPEXT%JCVEXT =
+        ! MAX(0,KTDIA-1) top boundary levels and only lets the cloud reach
+        ! IKE = NKT-JCVEXT; with the default KTDIA=1 that margin is zero, so a
+        ! column that convects to the model top writes past the array end (heap
+        ! corruption — issue #8). We add two buffer levels (NKT = nlev+2) and pass
+        ! KTDIA+2 so JCVEXT=2 -> IKE=nlev: the cloud still uses every physical
+        ! level, and KCTL+2 lands in the buffer. Physical levels are copied back.
+        INTEGER :: nk, ikt_eff, jbuf
+        REAL(KIND=WP), ALLOCATABLE, DIMENSION(:,:) :: z_ppabst, z_pzz, z_ptt
+        REAL(KIND=WP), ALLOCATABLE, DIMENSION(:,:) :: z_prvt, z_prct, z_prit, z_pwt
+        REAL(KIND=WP), ALLOCATABLE, DIMENSION(:,:) :: z_ptten, z_prvten, z_prcten, z_priten, z_pumf
+        REAL(KIND=WP), ALLOCATABLE, DIMENSION(:,:,:) :: z_pch1, z_pch1ten
+
         ! Convert C integers to Fortran logicals
         LOSETTADJ = (osettadj_int /= 0)
         LOCH1CONV = (och1conv_int /= 0)
@@ -607,17 +622,45 @@ CONTAINS
         CALL C_F_POINTER(ptr_pch1, f_pch1, [nlon, nlev, kch1])
         CALL C_F_POINTER(ptr_pch1ten, f_pch1ten, [nlon, nlev, kch1])
 
-        ! Initialize DIMPHYEX structure
+        ! Pad with two buffer levels above the physical top (see the note above).
+        nk = nlev + 2
+        ALLOCATE(z_ppabst(nlon,nk), z_pzz(nlon,nk), z_ptt(nlon,nk))
+        ALLOCATE(z_prvt(nlon,nk), z_prct(nlon,nk), z_prit(nlon,nk), z_pwt(nlon,nk))
+        ALLOCATE(z_ptten(nlon,nk), z_prvten(nlon,nk), z_prcten(nlon,nk), z_priten(nlon,nk), z_pumf(nlon,nk))
+        ALLOCATE(z_pch1(nlon,nk,kch1), z_pch1ten(nlon,nk,kch1))
+        z_ppabst(:,1:nlev) = f_ppabst; z_pzz(:,1:nlev) = f_pzz; z_ptt(:,1:nlev) = f_ptt
+        z_prvt(:,1:nlev) = f_prvt; z_prct(:,1:nlev) = f_prct
+        z_prit(:,1:nlev) = f_prit; z_pwt(:,1:nlev) = f_pwt
+        z_ptten(:,1:nlev) = f_ptten; z_prvten(:,1:nlev) = f_prvten
+        z_prcten(:,1:nlev) = f_prcten; z_priten(:,1:nlev) = f_priten; z_pumf(:,1:nlev) = f_pumf
+        z_pch1(:,1:nlev,:) = f_pch1; z_pch1ten(:,1:nlev,:) = f_pch1ten
+        ! Buffer levels: extrapolate height/pressure so the vertical metric stays
+        ! monotonic and non-zero; zero-gradient the state, zero the tendencies.
+        DO jbuf = nlev+1, nk
+            z_pzz(:,jbuf)    = 2.0_WP*z_pzz(:,jbuf-1)    - z_pzz(:,jbuf-2)
+            z_ppabst(:,jbuf) = MAX(1.0_WP, 2.0_WP*z_ppabst(:,jbuf-1) - z_ppabst(:,jbuf-2))
+            z_ptt(:,jbuf)    = z_ptt(:,nlev)
+            z_prvt(:,jbuf)   = z_prvt(:,nlev)
+            z_prct(:,jbuf)   = z_prct(:,nlev)
+            z_prit(:,jbuf)   = z_prit(:,nlev)
+            z_pwt(:,jbuf)    = z_pwt(:,nlev)
+            z_ptten(:,jbuf)  = 0.0_WP; z_prvten(:,jbuf) = 0.0_WP; z_prcten(:,jbuf) = 0.0_WP
+            z_priten(:,jbuf) = 0.0_WP; z_pumf(:,jbuf)   = 0.0_WP
+            z_pch1(:,jbuf,:) = z_pch1(:,nlev,:); z_pch1ten(:,jbuf,:) = 0.0_WP
+        END DO
+
+        ! Initialize DIMPHYEX structure (NKT spans the buffer; NKE is the
+        ! physical top, so the cloud is bounded to the real column).
         D%NIT = nlon
         D%NIB = 1
         D%NIE = nlon
         D%NJT = 1
         D%NJB = 1
         D%NJE = 1
-        D%NKT = nlev
+        D%NKT = nk
         D%NKL = 1
         D%NKA = 1
-        D%NKU = nlev
+        D%NKU = nk
         D%NKB = 1
         D%NKE = nlev
         D%NKTB = 1
@@ -706,22 +749,33 @@ CONTAINS
         ! timescale argument here (CST init is timestep-independent).
         CALL ensure_phyex_init(ptadjs, PHYEX_MICRO_ICE3, PHYEX_SCONV_NONE, PHYEX_TURB_TKEL)
 
-        ! OpenACC data region for GPU execution
-        !$acc data deviceptr(f_ppabst, f_pzz, f_ptkecls, f_ptt, f_prvt, f_prct, f_prit, f_pwt) &
-        !$acc&     deviceptr(f_ptten, f_prvten, f_prcten, f_priten, f_pumf) &
-        !$acc&     deviceptr(f_kcltop, f_kclbas, f_pch1, f_pch1ten)
+        ! Pass KTDIA+2 so the scheme reserves JCVEXT=2 top boundary levels
+        ! (= our buffer): IKE = NKT-JCVEXT = nlev, so the cloud reaches the
+        ! physical top and the KCTL+2 detrainment lands in the buffer levels.
+        ikt_eff = ktdia + 2
 
-        ! Call the actual SHALLOW_CONVECTION routine with the shared constants
+        ! Call SHALLOW_CONVECTION on the padded column. f_ptkecls / f_kcltop /
+        ! f_kclbas are 1D (not vertically padded); kcltop/kclbas are written as
+        ! physical level indices, valid for the caller as-is.
         CALL SHALLOW_CONVECTION(                                               &
-            CVP_SHAL, G_PHYEX%CST, D, NSV, CONVPAR, kbdia, ktdia,              &
-            kice, LOSETTADJ, ptadjs, f_ppabst, f_pzz,                          &
-            f_ptkecls, f_ptt, f_prvt, f_prct, f_prit, f_pwt,                   &
-            f_ptten, f_prvten, f_prcten, f_priten,                             &
-            f_kcltop, f_kclbas, f_pumf, LOCH1CONV, kch1,                       &
-            f_pch1, f_pch1ten                                                  &
+            CVP_SHAL, G_PHYEX%CST, D, NSV, CONVPAR, kbdia, ikt_eff,            &
+            kice, LOSETTADJ, ptadjs, z_ppabst, z_pzz,                          &
+            f_ptkecls, z_ptt, z_prvt, z_prct, z_prit, z_pwt,                   &
+            z_ptten, z_prvten, z_prcten, z_priten,                             &
+            f_kcltop, f_kclbas, z_pumf, LOCH1CONV, kch1,                       &
+            z_pch1, z_pch1ten                                                  &
         )
 
-        !$acc end data
+        ! Copy the physical levels of the in/out + output fields back.
+        f_ptten   = z_ptten(:,1:nlev)
+        f_prvten  = z_prvten(:,1:nlev)
+        f_prcten  = z_prcten(:,1:nlev)
+        f_priten  = z_priten(:,1:nlev)
+        f_pumf    = z_pumf(:,1:nlev)
+        f_pch1ten = z_pch1ten(:,1:nlev,:)
+
+        DEALLOCATE(z_ppabst, z_pzz, z_ptt, z_prvt, z_prct, z_prit, z_pwt)
+        DEALLOCATE(z_ptten, z_prvten, z_prcten, z_priten, z_pumf, z_pch1, z_pch1ten)
 
     END SUBROUTINE c_shallow_convection_wrap
 

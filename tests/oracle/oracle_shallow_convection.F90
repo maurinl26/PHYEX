@@ -39,6 +39,13 @@ PROGRAM ORACLE_SHALLOW_CONVECTION
     INTEGER, ALLOCATABLE :: kcltop(:), kclbas(:)
     REAL,    ALLOCATABLE :: pch1(:,:,:), pch1ten(:,:,:)
 
+    ! Two-level top padding so CONVECT_UPDRAFT_SHAL's KCTL+2 detrainment writes
+    ! stay in-bounds; mirrors the c_shallow_convection bridge (issue #8).
+    INTEGER :: nk, jbuf, ikt_eff
+    REAL, ALLOCATABLE :: z_ppabst(:,:), z_pzz(:,:), z_ptt(:,:), z_prvt(:,:), z_prct(:,:), z_prit(:,:), z_pwt(:,:)
+    REAL, ALLOCATABLE :: z_ptten(:,:), z_prvten(:,:), z_prcten(:,:), z_priten(:,:), z_pumf(:,:)
+    REAL, ALLOCATABLE :: z_pch1(:,:,:), z_pch1ten(:,:,:)
+
     CALL GET_COMMAND_ARGUMENT(1, infile)
     CALL GET_COMMAND_ARGUMENT(2, outfile)
 
@@ -81,13 +88,14 @@ PROGRAM ORACLE_SHALLOW_CONVECTION
         LDDEFAULTVAL=.FALSE., LDREADNAM=.FALSE., LDCHECK=.FALSE., &
         KPRINT=0, LDINIT=.TRUE., PHYEX_IN=G, PHYEX_OUT=G)
 
+    nk = nlev + 2
     D%NIT = nlon; D%NIB = 1; D%NIE = nlon
     D%NJT = 1; D%NJB = 1; D%NJE = 1
-    D%NKT = nlev; D%NKL = 1; D%NKA = 1; D%NKU = nlev
+    D%NKT = nk; D%NKL = 1; D%NKA = 1; D%NKU = nk
     D%NKB = 1; D%NKE = nlev; D%NKTB = 1; D%NKTE = nlev
     D%NIBC = 1; D%NJBC = 1; D%NIEC = nlon; D%NJEC = 1
     D%NIJT = nlon; D%NIJB = 1; D%NIJE = nlon
-    D%NKLES = nlev; D%NLESMASK = 0; D%NLES_TIMES = 0
+    D%NKLES = nk; D%NLESMASK = 0; D%NLES_TIMES = 0
 
     NSV%NSV_USER = 0
     NSV%NSV_C2R2BEG = 0; NSV%NSV_C2R2END = 0
@@ -117,12 +125,36 @@ PROGRAM ORACLE_SHALLOW_CONVECTION
     CVP_SHAL%XSTABT = 0.75; CVP_SHAL%XSTABC = 0.95; CVP_SHAL%XAW = 1.0
     CVP_SHAL%XBW = 0.0; CVP_SHAL%LLSMOOTH = .TRUE.
 
-    CALL SHALLOW_CONVECTION(CVP_SHAL, G%CST, D, NSV, CONVPAR, kbdia, ktdia,  &
-        kice, LOSETTADJ, ptadjs, ppabst, pzz,                               &
-        ptkecls, ptt, prvt, prct, prit, pwt,                                &
-        ptten, prvten, prcten, priten,                                      &
-        kcltop, kclbas, pumf, LOCH1CONV, kch1,                              &
-        pch1, pch1ten)
+    ! Pad with two buffer levels above the physical top; pass KTDIA+2 so the
+    ! scheme reserves JCVEXT=2 boundary levels and KCTL+2 lands in the buffer.
+    ALLOCATE(z_ppabst(nlon,nk), z_pzz(nlon,nk), z_ptt(nlon,nk))
+    ALLOCATE(z_prvt(nlon,nk), z_prct(nlon,nk), z_prit(nlon,nk), z_pwt(nlon,nk))
+    ALLOCATE(z_ptten(nlon,nk), z_prvten(nlon,nk), z_prcten(nlon,nk), z_priten(nlon,nk), z_pumf(nlon,nk))
+    ALLOCATE(z_pch1(nlon,nk,kch1), z_pch1ten(nlon,nk,kch1))
+    z_ppabst(:,1:nlev)=ppabst; z_pzz(:,1:nlev)=pzz; z_ptt(:,1:nlev)=ptt
+    z_prvt(:,1:nlev)=prvt; z_prct(:,1:nlev)=prct; z_prit(:,1:nlev)=prit; z_pwt(:,1:nlev)=pwt
+    z_ptten(:,1:nlev)=ptten; z_prvten(:,1:nlev)=prvten; z_prcten(:,1:nlev)=prcten
+    z_priten(:,1:nlev)=priten; z_pumf(:,1:nlev)=pumf
+    z_pch1(:,1:nlev,:)=pch1; z_pch1ten(:,1:nlev,:)=pch1ten
+    DO jbuf = nlev+1, nk
+        z_pzz(:,jbuf)    = 2.0*z_pzz(:,jbuf-1)    - z_pzz(:,jbuf-2)
+        z_ppabst(:,jbuf) = MAX(1.0, 2.0*z_ppabst(:,jbuf-1) - z_ppabst(:,jbuf-2))
+        z_ptt(:,jbuf)=z_ptt(:,nlev); z_prvt(:,jbuf)=z_prvt(:,nlev); z_prct(:,jbuf)=z_prct(:,nlev)
+        z_prit(:,jbuf)=z_prit(:,nlev); z_pwt(:,jbuf)=z_pwt(:,nlev)
+        z_ptten(:,jbuf)=0.; z_prvten(:,jbuf)=0.; z_prcten(:,jbuf)=0.; z_priten(:,jbuf)=0.; z_pumf(:,jbuf)=0.
+        z_pch1(:,jbuf,:)=z_pch1(:,nlev,:); z_pch1ten(:,jbuf,:)=0.
+    END DO
+    ikt_eff = ktdia + 2
+
+    CALL SHALLOW_CONVECTION(CVP_SHAL, G%CST, D, NSV, CONVPAR, kbdia, ikt_eff, &
+        kice, LOSETTADJ, ptadjs, z_ppabst, z_pzz,                           &
+        ptkecls, z_ptt, z_prvt, z_prct, z_prit, z_pwt,                      &
+        z_ptten, z_prvten, z_prcten, z_priten,                             &
+        kcltop, kclbas, z_pumf, LOCH1CONV, kch1,                            &
+        z_pch1, z_pch1ten)
+
+    ptten=z_ptten(:,1:nlev); prvten=z_prvten(:,1:nlev); prcten=z_prcten(:,1:nlev)
+    priten=z_priten(:,1:nlev); pumf=z_pumf(:,1:nlev); pch1ten=z_pch1ten(:,1:nlev,:)
 
     OPEN(NEWUNIT=iu, FILE=TRIM(outfile), FORM='UNFORMATTED', ACCESS='STREAM', STATUS='REPLACE')
     WRITE(iu) ptten, prvten, prcten, priten, pumf
