@@ -8,7 +8,9 @@
 #   make all        wheel + oracles + goldens + test
 
 PY      ?= python
-ORACLES := ice_adjust rain_ice turb shallow_convection
+# Overridable so CI can skip shallow_convection, whose legacy Kain-Fritsch scheme
+# heap-corrupts on Linux glibc with a triggering column (validated on macOS).
+ORACLES ?= ice_adjust rain_ice turb shallow_convection
 ODIR    := build/oracle
 TMP     := $(or $(TMPDIR),/tmp)
 
