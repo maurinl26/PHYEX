@@ -252,9 +252,14 @@ class IceAdjustGPU:
             if arr.shape != (nlon, nlev):
                 raise ValueError(f"Array shape {arr.shape} != ({nlon}, {nlev})")
 
-        # Ensure arrays are contiguous in memory (required for GPU kernels)
-        sigqsat = cp.ascontiguousarray(sigqsat)
-        arrays_contig = [cp.ascontiguousarray(arr) for arr in arrays]
+        # Fortran (column-major) contiguity. The C bridge maps every device
+        # pointer to a Fortran-order array via C_F_POINTER(ptr, f, [nlon, nlev]),
+        # so the device buffers MUST be column-major — a C-contiguous array would
+        # be read transposed (wrong physics / out-of-bounds), with no error. The
+        # CPU golden reference (tests/data/ice_adjust_ref.npz) pins the correct
+        # numbers for the GPU-vs-CPU check.
+        sigqsat = cp.asfortranarray(sigqsat)
+        arrays_contig = [cp.asfortranarray(arr) for arr in arrays]
 
         # Extract GPU device pointers
         cdef long ptr_sigqsat_val = sigqsat.data.ptr
@@ -530,9 +535,11 @@ class RainIceGPU:
         if fpr.shape != (nlon, nlev, self.krr):
             raise ValueError(f"fpr shape {fpr.shape} != ({nlon}, {nlev}, {self.krr})")
 
-        # Ensure arrays are contiguous in memory (required for GPU kernels)
-        arrays_2d_contig = [cp.ascontiguousarray(arr) for arr in arrays_2d]
-        fpr_contig = cp.ascontiguousarray(fpr)
+        # Fortran (column-major) contiguity — see the note in IceAdjustGPU: the
+        # bridge reads each device pointer as a Fortran-order array, so a
+        # C-contiguous buffer would be transposed on device.
+        arrays_2d_contig = [cp.asfortranarray(arr) for arr in arrays_2d]
+        fpr_contig = cp.asfortranarray(fpr)
 
         # Extract GPU device pointers for 2D arrays
         cdef long ptr_exn_val = arrays_2d_contig[0].data.ptr
