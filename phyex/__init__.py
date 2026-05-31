@@ -59,6 +59,12 @@ if _w is not None:
             globals()[_name] = getattr(_w, _name)
             __all__.append(_name)
 
+    # Ergonomic wrappers (hide the *S = R/dt source convention). Available only
+    # when the CPU routines are present.
+    if "ice_adjust" in __all__:
+        from .ergonomics import ice_adjust_step
+        __all__.append("ice_adjust_step")
+
 
 def configure(micro="ICE3", sconv="NONE", turb="TKEL", timestep=1.0):
     """Select the PHYEX schemes for this process.
