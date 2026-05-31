@@ -52,7 +52,10 @@ jobs:
           python -m pip install . -v
 
       - name: Sanity import
+        # From a dir without ./phyex, so the *installed* extension is imported
+        # rather than the (uncompiled) source package.
         run: |
+          cd "$RUNNER_TEMP"
           python -c "import phyex; assert hasattr(phyex,'ice_adjust'); print('CPU build OK, GPU build:', phyex.is_gpu_build())"
 
       - name: Build golden-reference oracles
@@ -77,6 +80,7 @@ jobs:
         # This makes the golden test a clean binding-vs-native-call cross-check
         # rather than a cross-platform FP comparison.
         run: |
+          cd "$RUNNER_TEMP"
           for r in ice_adjust rain_ice turb shallow_convection; do
             python "$GITHUB_WORKSPACE/tests/golden/gen_golden_${r}.py"
           done
