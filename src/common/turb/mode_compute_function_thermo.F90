@@ -6,6 +6,45 @@
 MODULE MODE_COMPUTE_FUNCTION_THERMO
 IMPLICIT NONE
 CONTAINS
+!> @generated_by fortranspire v1 routine=COMPUTE_FUNCTION_THERMO body=1873483ea31e
+!> @brief Computes several thermodynamic functions for turbulence parameterization
+!> @details This routine calculates:
+!>   - PLOCPEXN: Lv/Cph at temperature t
+!>   - PAMOIST: Moisture availability factor
+!>   - PATHETA: Theta-related thermodynamic coefficient
+!>   - Updates PRT: Water vapor mixing ratio (inout parameter)
+!> 
+!> The computation follows these steps:
+!> 1. Calculates Lv/Cph at temperature t (PLOCPEXN)
+!> 2. Computes saturation vapor pressure at t (ZRVSAT)
+!> 3. Derives saturation mixing ratio at t
+!> 4. Computes saturation mixing ratio derivative (ZDRVSATDT)
+!> 5. Calculates moisture availability factor (PAMOIST)
+!> 6. Computes theta-related coefficient (PATHETA)
+!> 7. Finalizes Lv/Cph/Exner at t-1 (PLOCPEXN)
+!> 
+!> @note Includes AROME-specific protection against crashes (line 100)
+!> @note Uses OpenACC directives for GPU acceleration
+!> 
+!> @param[in] D PHYEX variables dimensions structure (DIMPHYEX_t)
+!> @param[in] CST Constants structure (CST_t)
+!> @param[in] PALP Thermodynamic constant (real)
+!> @param[in] PBETA Thermodynamic constant (real)
+!> @param[in] PGAM Thermodynamic constant (real)
+!> @param[in] PLTT Thermodynamic constant (real)
+!> @param[in] PC Specific heat capacity (real)
+!> @param[in] PT Temperature field (D%NIJT × D%NKT)
+!> @param[in] PEXN Exner function field (D%NIJT × D%NKT)
+!> @param[in] PCP Specific heat capacity field (D%NIJT × D%NKT)
+!> @param[out] PLOCPEXN Lv/Cph at t, then Lv/Cph/Exner at t-1 (D%NIJT × D%NKT)
+!> @param[out] PAMOIST Moisture availability factor (D%NIJT × D%NKT)
+!> @param[out] PATHETA Theta-related thermodynamic coefficient (D%NIJT × D%NKT)
+!> @param[inout] PRT Water vapor mixing ratio (D%NIJT × D%NKT × KRR)
+!> @param[in] PPABST Absolute pressure field (D%NIJT × D%NKT)
+!> @param[in] KRR Number of water species
+!> 
+!> @author JP Pinty (original 24/02/03)
+!> @modifications AROME team (2024-03-12 crash protection)
 SUBROUTINE COMPUTE_FUNCTION_THERMO (D, CST, PALP, PBETA, PGAM, PLTT, PC, PT, PEXN, PCP, &
                                    & PLOCPEXN, PAMOIST, PATHETA, PRT, PPABST, KRR)
     !     ########################################################################
