@@ -5,7 +5,7 @@
 <meta http-equiv="X-UA-Compatible" content="IE=11"/>
 <meta name="generator" content="Doxygen 1.9.8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>PHYEX: /home/runner/work/PHYEX/PHYEX/src/offline/progs/main_shallow.F90 File Reference</title>
+<title>PHYEX: /home/runner/work/PHYEX/PHYEX/src/common/progs/main_shallow.F90 File Reference</title>
 <link href="tabs.css" rel="stylesheet" type="text/css"/>
 <script type="text/javascript" src="jquery.js"></script>
 <script type="text/javascript" src="dynsections.js"></script>
@@ -70,7 +70,7 @@ $(function() {
 
 <div id="nav-path" class="navpath">
   <ul>
-<li class="navelem"><a class="el" href="dir_68267d1309a1af8e8297ef4c3efbcdba.html">src</a></li><li class="navelem"><a class="el" href="dir_dc9a9709e0c0698a56e4b9531cb80bac.html">offline</a></li><li class="navelem"><a class="el" href="dir_6a52f3889897403c4c294e1c4b67aa2d.html">progs</a></li>  </ul>
+<li class="navelem"><a class="el" href="dir_68267d1309a1af8e8297ef4c3efbcdba.html">src</a></li><li class="navelem"><a class="el" href="dir_fdedb0aba14d44ce9d99bc100e026e6a.html">common</a></li><li class="navelem"><a class="el" href="dir_20358b0ee7960142ce804031adf2c9bf.html">progs</a></li>  </ul>
 </div>
 </div><!-- top -->
 <div class="header">
@@ -86,12 +86,12 @@ $(function() {
 Functions/Subroutines</h2></td></tr>
 <tr class="memitem:a09dc47f11bee90403577d0bea4be4bbd" id="r_a09dc47f11bee90403577d0bea4be4bbd"><td class="memItemLeft" align="right" valign="top">program&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="main__shallow_8F90.html#a09dc47f11bee90403577d0bea4be4bbd">main_shallow</a></td></tr>
 <tr class="separator:a09dc47f11bee90403577d0bea4be4bbd"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a50f874a27e416876d8345461c1a3d17e" id="r_a50f874a27e416876d8345461c1a3d17e"><td class="memItemLeft" align="right" valign="top">subroutine&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="main__shallow_8F90.html#a50f874a27e416876d8345461c1a3d17e">init_phyex</a> (krr, krrl, krri, ksv, phyex)</td></tr>
-<tr class="separator:a50f874a27e416876d8345461c1a3d17e"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a87a711c76c360195c74b4922f228191f" id="r_a87a711c76c360195c74b4922f228191f"><td class="memItemLeft" align="right" valign="top">subroutine&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="main__shallow_8F90.html#a87a711c76c360195c74b4922f228191f">init_phyex</a> (krr, krrl, krri, ksv, phyex, misc)</td></tr>
+<tr class="separator:a87a711c76c360195c74b4922f228191f"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <h2 class="groupheader">Function/Subroutine Documentation</h2>
-<a id="a50f874a27e416876d8345461c1a3d17e" name="a50f874a27e416876d8345461c1a3d17e"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a50f874a27e416876d8345461c1a3d17e">&#9670;&#160;</a></span>init_phyex()</h2>
+<a id="a87a711c76c360195c74b4922f228191f" name="a87a711c76c360195c74b4922f228191f"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a87a711c76c360195c74b4922f228191f">&#9670;&#160;</a></span>init_phyex()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -123,8 +123,14 @@ Functions/Subroutines</h2></td></tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">type(<a class="el" href="structmodd__phyex_1_1phyex__t.html">phyex_t</a>), intent(out)&#160;</td>
-          <td class="paramname"><em>phyex</em>&#160;</td>
+          <td class="paramtype">type(<a class="el" href="structmodd__phyex_1_1phyex__t.html">phyex_t</a>), intent(out), target&#160;</td>
+          <td class="paramname"><em>phyex</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">type(<a class="el" href="structmodd__misc__offline_1_1misc__offline__t.html">misc_offline_t</a>), intent(out), target&#160;</td>
+          <td class="paramname"><em>misc</em>&#160;</td>
         </tr>
         <tr>
           <td></td>
@@ -134,12 +140,12 @@ Functions/Subroutines</h2></td></tr>
       </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="main__shallow_8F90_source.html#l00415">415</a> of file <a class="el" href="main__shallow_8F90_source.html">main_shallow.F90</a>.</p>
+<p class="definition">Definition at line <a class="el" href="main__shallow_8F90_source.html#l00418">418</a> of file <a class="el" href="main__shallow_8F90_source.html">main_shallow.F90</a>.</p>
 <div class="dynheader">
 Here is the call graph for this function:</div>
 <div class="dyncontent">
-<div class="center"><img src="main__shallow_8F90_a50f874a27e416876d8345461c1a3d17e_cgraph.png" border="0" usemap="#amain__shallow_8F90_a50f874a27e416876d8345461c1a3d17e_cgraph" alt=""/></div>
-<map name="amain__shallow_8F90_a50f874a27e416876d8345461c1a3d17e_cgraph" id="amain__shallow_8F90_a50f874a27e416876d8345461c1a3d17e_cgraph">
+<div class="center"><img src="main__shallow_8F90_a87a711c76c360195c74b4922f228191f_cgraph.png" border="0" usemap="#amain__shallow_8F90_a87a711c76c360195c74b4922f228191f_cgraph" alt=""/></div>
+<map name="amain__shallow_8F90_a87a711c76c360195c74b4922f228191f_cgraph" id="amain__shallow_8F90_a87a711c76c360195c74b4922f228191f_cgraph">
 <area shape="rect" title=" " alt="" coords="5,13,96,38"/>
 <area shape="rect" href="namespacemodd__budget.html#af15bfc58a4de25c3d3c3c8dcb4f017c0" title=" " alt="" coords="144,5,312,45"/>
 <area shape="poly" title=" " alt="" coords="96,23,130,23,130,28,96,28"/>
@@ -169,9 +175,9 @@ Here is the call graph for this function:</div>
 <area shape="rect" title=" " alt="" coords="5,161,117,187"/>
 <area shape="rect" href="namespacexrd__getoptions.html#a61e2d1792cf018efb939c3e02b916026" title=" " alt="" coords="165,75,377,100"/>
 <area shape="poly" title=" " alt="" coords="79,159,117,134,164,110,190,101,192,106,166,115,120,139,82,163"/>
-<area shape="rect" href="namespacegetdata__shallow__mod.html#a0c6b214568a9eac8e09185240029e5e7" title=" " alt="" coords="189,125,354,165"/>
+<area shape="rect" href="namespacegetdata__shallow__mod.html#a8934189d37e2acf65b377215e62951fc" title=" " alt="" coords="189,125,354,165"/>
 <area shape="poly" title=" " alt="" coords="117,164,175,155,175,161,118,169"/>
-<area shape="rect" href="main__ice__adjust_8F90.html#a21b7e3321ba604b57e15565542e383ab" title=" " alt="" coords="226,189,317,215"/>
+<area shape="rect" href="main__ice__adjust_8F90.html#a92debc8b658773138ddfa1daec8c809b" title=" " alt="" coords="226,189,317,215"/>
 <area shape="poly" title=" " alt="" coords="118,179,213,192,212,197,117,184"/>
 <area shape="rect" href="namespacexrd__getoptions.html#a5799ba98c89dd37dae3714dd84871074" title=" " alt="" coords="173,247,369,272"/>
 <area shape="poly" title=" " alt="" coords="87,184,166,224,212,240,211,245,164,228,84,189"/>
